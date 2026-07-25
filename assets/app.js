@@ -30,17 +30,38 @@ const RENT_BASIS = {
     key: 'rentAcs',
     label: 'Census ACS median gross rent',
     short: 'Census ACS',
-    hint: 'Every county. Five-year average, includes utilities.',
+    hint: 'Every county. Five-year average, includes utilities, sized by unit.',
     includesUtilities: true,
+    hasBedrooms: true,
   },
   zori: {
     key: 'rentZori',
     label: 'Zillow Observed Rent Index',
     short: 'Zillow ZORI',
-    hint: 'Current month, but only where Zillow publishes an index.',
+    hint: 'Current month, all unit sizes together, only where Zillow indexes.',
     includesUtilities: false,
+    hasBedrooms: false,
   },
 };
+
+/**
+ * Unit sizes available on the Census basis.
+ *
+ * This matters more than it looks. The model prices ONE ADULT with no children —
+ * the same household MIT budgets for — but an all-bedroom median is pulled
+ * upward by family-sized units. In King County it is $2,035 against $1,813 for a
+ * one-bedroom, so defaulting to the overall median would overstate a single
+ * person's rent by about 12%. One bedroom is therefore the default.
+ *
+ * Rarer sizes are suppressed in thin counties, so each falls back to the overall
+ * median and says so rather than leaving the county blank.
+ */
+const UNIT_SIZES = [
+  { key: 'br1', label: '1 bedroom' },
+  { key: 'studio', label: 'Studio' },
+  { key: 'br2', label: '2 bedrooms' },
+  { key: 'all', label: 'All sizes' },
+];
 
 const state = {
   rents: null,
@@ -53,6 +74,7 @@ const state = {
   offer: null,
   selectedCounty: DEFAULT_COUNTY,
   rentBasis: 'acs',
+  unitSize: 'br1',
   focusCity: 'sea',
 };
 
@@ -98,6 +120,9 @@ async function load() {
       zoriYoy: zori?.yoy ?? null,
       rentAcs: acs?.rent ?? null,
       acsMoe: acs?.moe ?? null,
+      acsByUnit: acs
+        ? { all: acs.rent ?? null, studio: acs.studio ?? null, br1: acs.br1 ?? null, br2: acs.br2 ?? null }
+        : null,
       nonHousingMonthly: wage.nonHousingMonthly,
       expenses: wage.e ?? null,
       label: `${geo.name}, ${geo.st}`,
@@ -110,6 +135,7 @@ async function load() {
   renderMasthead(countyZori, countyAcs);
   renderPresets();
   renderCountyPicker();
+  renderUnitSizePicker();
   renderCityPicker();
   buildMap();
   bindInputs();
@@ -182,6 +208,13 @@ function bindInputs() {
 
   $('#rent-basis').addEventListener('change', (e) => {
     state.rentBasis = e.target.value;
+    syncUnitSizeControl();
+    renderCountyPanel();
+    paintMap();
+  });
+
+  $('#unit-size').addEventListener('change', (e) => {
+    state.unitSize = e.target.value;
     renderCountyPanel();
     paintMap();
   });
@@ -204,8 +237,28 @@ function markCustom() {
 
 const basis = () => RENT_BASIS[state.rentBasis];
 
-/** Rent for a county on the active basis, or null if that source lacks it. */
-const rentOf = (county) => county[basis().key];
+/**
+ * Rent for a county on the active basis and unit size.
+ *
+ * @returns {{ rent: number|null, unit: string|null, fellBack: boolean }}
+ */
+function rentInfo(county) {
+  if (!basis().hasBedrooms) {
+    return { rent: county.rentZori, unit: null, fellBack: false };
+  }
+
+  const wanted = state.unitSize;
+  const sized = county.acsByUnit?.[wanted] ?? null;
+  if (sized !== null) {
+    return { rent: sized, unit: wanted, fellBack: false };
+  }
+
+  // Suppressed for this unit size in this county — fall back to the overall
+  // median and flag it, rather than dropping the county off the map.
+  return { rent: county.rentAcs, unit: 'all', fellBack: wanted !== 'all' };
+}
+
+const rentOf = (county) => rentInfo(county).rent;
 
 function locationsFor(offer) {
   return state.rents.hubs.map((hub) => ({
@@ -309,6 +362,30 @@ function renderPresets() {
   }
 }
 
+/** Unit size only exists on the Census basis; Zillow publishes no bedroom split. */
+function syncUnitSizeControl() {
+  const select = $('#unit-size');
+  const supported = basis().hasBedrooms;
+
+  select.disabled = !supported;
+  $('#unit-size-hint').textContent = supported
+    ? 'A single adult is priced against a one-bedroom by default.'
+    : 'Zillow publishes no bedroom breakdown — all unit sizes together.';
+}
+
+function renderUnitSizePicker() {
+  const select = $('#unit-size');
+  select.replaceChildren();
+  for (const size of UNIT_SIZES) {
+    const o = document.createElement('option');
+    o.value = size.key;
+    o.textContent = size.label;
+    if (size.key === state.unitSize) o.selected = true;
+    select.appendChild(o);
+  }
+  syncUnitSizeControl();
+}
+
 function renderCountyPicker() {
   const list = $('#county-options');
   list.replaceChildren();
@@ -341,7 +418,7 @@ function renderCountyPanel() {
   $('#rent-basis-hint').textContent = basis().hint;
   $('#county-picker').value = county.label;
 
-  const rent = rentOf(county);
+  const { rent, unit, fellBack } = rentInfo(county);
   const local = localCodeFor(county);
 
   $('#county-hint').textContent =
@@ -384,14 +461,15 @@ function renderCountyPanel() {
     `<div><strong>${band.label}</strong> in ${county.name} on ${money(state.offer.baseSalary)} base. ` +
     `${band.description}</div>`;
 
+  const unitLabel = UNIT_SIZES.find((u) => u.key === unit)?.label;
   const rentNote =
     state.rentBasis === 'acs'
-      ? county.acsMoe
-        ? `Census ACS ±${money(county.acsMoe)}`
-        : 'Census ACS'
+      ? fellBack
+        ? `${unitLabel} — no separate figure published for this size here`
+        : `Census ACS · ${unitLabel}`
       : county.zoriYoy === null
-        ? 'Zillow ZORI'
-        : `${(county.zoriYoy * 100).toFixed(1)}% YoY`;
+        ? 'Zillow ZORI · all sizes'
+        : `Zillow ZORI · all sizes · ${(county.zoriYoy * 100).toFixed(1)}% YoY`;
 
   const tiles = [
     { label: 'Take-home', value: `${money(net)}/mo`, note: `after ${pct(tax.effectiveRate, 1)} total tax` },
@@ -604,6 +682,9 @@ function paintMap() {
   $('#map-intro').textContent =
     `Every US county, shaded by what share of take-home rent and necessities consume. ` +
     `Click any county to select it. Rent here is ${basis().label}` +
+    (basis().hasBedrooms
+      ? `, ${UNIT_SIZES.find((u) => u.key === state.unitSize).label.toLowerCase()}`
+      : '') +
     (state.rentBasis === 'acs'
       ? ', which covers essentially the whole country.'
       : ', so counties Zillow does not index are left unshaded.');

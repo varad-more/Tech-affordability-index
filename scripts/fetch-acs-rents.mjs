@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Ingest median gross rent for EVERY US county from the Census Bureau's American
- * Community Survey (table B25064, 5-year estimates).
+ * Community Survey (table B25031, 5-year estimates), broken out by bedroom count.
  *
  * Why this exists alongside the Zillow ingest: ZORI is current and monthly, but
  * Zillow only publishes it for counties with enough listing volume — about 1,360
@@ -10,8 +10,8 @@
  * same thing:
  *
  *   ZORI  asking rent, all home types, EXCLUDING utilities, current month
- *   ACS   rent actually paid by sitting tenants, INCLUDING utilities,
- *         a five-year average centred about two years back
+ *   ACS   rent actually paid by sitting tenants, INCLUDING utilities, broken
+ *         down by unit size, a five-year average centred about two years back
  *
  * A single national multiplier converting one to the other was tested and
  * rejected: correlation is only 0.675, median error 11% and 90th-percentile
@@ -43,14 +43,32 @@ const VINTAGE = '2023';
 
 const SOURCE = {
   name: 'US Census Bureau, American Community Survey 5-year estimates',
-  table: 'B25064 — Median Gross Rent',
-  url: `https://www2.census.gov/programs-surveys/acs/summary_file/${VINTAGE}/table-based-SF/data/5YRData/acsdt5y${VINTAGE}-b25064.dat`,
+  table: 'B25031 — Median Gross Rent by Bedrooms',
+  url: `https://www2.census.gov/programs-surveys/acs/summary_file/${VINTAGE}/table-based-SF/data/5YRData/acsdt5y${VINTAGE}-b25031.dat`,
   homepage: 'https://www.census.gov/programs-surveys/acs',
   metric:
     'Median gross rent (contract rent plus utilities) paid by renter-occupied units, ' +
-    `${Number(VINTAGE) - 4}-${VINTAGE} five-year estimate`,
+    `broken out by bedroom count, ${Number(VINTAGE) - 4}-${VINTAGE} five-year estimate`,
   coverage: 'All US counties and county-equivalents',
 };
+
+/**
+ * B25031's columns, in published order.
+ *
+ * This table supersedes B25064: its first column is the same all-bedroom median,
+ * and the rest break it down. That breakdown matters more than it looks. The
+ * whole model is built for ONE ADULT with no children — the same household MIT
+ * prices — but an all-bedroom median is pulled upward by family-sized units. In
+ * King County it is $2,035 against $1,813 for a one-bedroom, so pricing a single
+ * adult against the overall median overstates their rent by about 12%.
+ */
+const BEDROOM_COLUMNS = [
+  { key: 'all', column: 1, label: 'All bedroom counts' },
+  { key: 'studio', column: 2, label: 'Studio' },
+  { key: 'br1', column: 3, label: '1 bedroom' },
+  { key: 'br2', column: 4, label: '2 bedrooms' },
+  { key: 'br3', column: 5, label: '3 bedrooms' },
+];
 
 /** Census null sentinels: negative nine-digit codes, not real values. */
 const isSentinel = (n) => !Number.isFinite(n) || n <= 0;
@@ -75,8 +93,19 @@ async function main() {
   const lines = text.split('\n');
 
   const header = lines[0]?.trim();
-  if (!header?.startsWith('GEO_ID|B25064_E001')) {
+  if (!header?.startsWith('GEO_ID|B25031_E001')) {
     fail(`unexpected header layout: "${header?.slice(0, 60)}"`);
+  }
+
+  // Estimate columns are interleaved with margins of error: E001,M001,E002,...
+  // so estimate N sits at index 2N-1. Verified against the header rather than
+  // assumed, because a layout change here would silently shift every bedroom.
+  const columns = header.split('|');
+  for (const { column, key } of BEDROOM_COLUMNS) {
+    const expected = `B25031_E${String(column).padStart(3, '0')}`;
+    if (columns[column * 2 - 1] !== expected) {
+      fail(`expected ${expected} at column ${column * 2 - 1} for "${key}", got "${columns[column * 2 - 1]}"`);
+    }
   }
 
   console.log(`  ${(text.length / 1048576).toFixed(1)} MB, ${lines.length - 1} rows`);
@@ -87,7 +116,8 @@ async function main() {
   for (const line of lines) {
     if (!line.startsWith(COUNTY_PREFIX)) continue;
 
-    const [geoId, estimate, margin] = line.split('|');
+    const cells = line.split('|');
+    const [geoId, estimate, margin] = cells;
     const fips = geoId.slice(COUNTY_PREFIX.length);
     // Territories appear in ACS but not in this project's basemap.
     if (!known.has(fips)) continue;
@@ -98,15 +128,24 @@ async function main() {
       continue;
     }
 
-    const moe = Number(margin);
-    counties.push({
+    const row = {
       fips,
       rent: Math.round(rent),
       // The margin of error is carried through rather than dropped: on a small
       // rural county it can be a large fraction of the estimate, and a reader
       // comparing two counties deserves to know which figure is shaky.
-      moe: isSentinel(moe) ? null : Math.round(moe),
-    });
+      moe: isSentinel(margin === undefined ? NaN : Number(margin)) ? null : Math.round(Number(margin)),
+    };
+
+    // Bedroom breakdown. A county can publish an overall median but suppress a
+    // rare unit size, so each is independently nullable.
+    for (const { key, column } of BEDROOM_COLUMNS) {
+      if (key === 'all') continue;
+      const value = Number(cells[column * 2 - 1]);
+      row[key] = isSentinel(value) ? null : Math.round(value);
+    }
+
+    counties.push(row);
   }
 
   if (counties.length < 3000) {
@@ -139,6 +178,7 @@ async function main() {
   const payload = {
     source: SOURCE,
     vintage: VINTAGE,
+    bedrooms: BEDROOM_COLUMNS,
     fetchedAt: new Date().toISOString(),
     countyCount: counties.length,
     counties,
@@ -150,7 +190,12 @@ async function main() {
   console.log(`\n  wrote ${counties.length} counties -> data/county-acs-rents.json`);
   console.log(`  coverage    : ${coverage}% of the ${basemap.counties.length} counties on the map`);
   console.log(`  suppressed  : ${sentinels} counties with no published estimate`);
-  console.log(`  rent range  : $${Math.min(...rents)}-$${Math.max(...rents)}/mo`);
+  console.log(`  rent range  : $${Math.min(...rents)}-$${Math.max(...rents)}/mo (all bedrooms)`);
+  for (const { key, label } of BEDROOM_COLUMNS) {
+    if (key === 'all') continue;
+    const have = counties.filter((c) => c[key] !== null).length;
+    console.log(`  ${label.padEnd(12)}: ${have} counties`);
+  }
 }
 
 main().catch((err) => fail(err.stack ?? String(err)));

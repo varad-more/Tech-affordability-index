@@ -122,6 +122,34 @@ test.describe('affordability index', () => {
     expect(nodata, 'ZORI basis should leave many counties unshaded').toBeGreaterThan(1000);
   });
 
+  test('unit size changes the rent, and a single adult is priced as one bedroom', async ({ page }) => {
+    await ready(page);
+
+    const rentTile = page.locator('.stat').filter({ hasText: 'Rent' }).first();
+    const rentValue = async () =>
+      Number((await rentTile.locator('.value').textContent()).replace(/[^0-9]/g, ''));
+
+    // Default is one bedroom, because the model prices one adult and an
+    // all-bedroom median is inflated by family-sized units.
+    await expect(page.locator('#unit-size')).toHaveValue('br1');
+    await expect(rentTile).toContainText('1 bedroom');
+    const oneBed = await rentValue();
+
+    await page.locator('#unit-size').selectOption('br2');
+    await expect(rentTile).toContainText('2 bedrooms');
+    expect(await rentValue(), 'a two-bed must cost more than a one-bed').toBeGreaterThan(oneBed);
+
+    await page.locator('#unit-size').selectOption('studio');
+    await expect(rentTile).toContainText('Studio');
+    expect(await rentValue(), 'a studio must cost less than a one-bed').toBeLessThan(oneBed);
+
+    // Zillow publishes no bedroom split, so the control switches off rather than
+    // silently pretending the selection still applies.
+    await page.locator('#rent-basis').selectOption('zori');
+    await expect(page.locator('#unit-size')).toBeDisabled();
+    await expect(rentTile).toContainText('all sizes');
+  });
+
   test('the cost breakdown adds up to the stated total', async ({ page }) => {
     await ready(page);
 
