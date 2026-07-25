@@ -361,15 +361,22 @@ test.describe('affordability index', () => {
     await expect(tip).toContainText('Los Angeles');
   });
 
-  test('the page never scrolls horizontally', async ({ page }) => {
-    for (const width of [1280, 768, 390]) {
-      await page.setViewportSize({ width, height: 900 });
-      await ready(page);
+  test('no page ever scrolls horizontally', async ({ page }) => {
+    // Every page, at three widths. The nav is the usual culprit: it has no
+    // scroll container of its own, so adding a link can silently widen the page.
+    for (const path of ['/', '/timing.html', '/method.html']) {
+      for (const width of [1280, 768, 390]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(path);
 
-      const overflow = await page.evaluate(
-        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-      );
-      expect(overflow, `horizontal overflow at ${width}px`).toBeLessThanOrEqual(1);
+        if (path === '/') await expect(page.locator('.stat')).toHaveCount(4);
+        else await expect(page.locator('h1')).toBeVisible();
+
+        const overflow = await page.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        );
+        expect(overflow, `horizontal overflow on ${path} at ${width}px`).toBeLessThanOrEqual(1);
+      }
     }
   });
 
@@ -384,6 +391,70 @@ test.describe('affordability index', () => {
     await expect(page.locator('#bars .bar-row').first()).toHaveAttribute('tabindex', '0');
   });
 
+  test('the timing page draws the seasonal pattern and the trend', async ({ page }) => {
+    const errors = watchForErrors(page);
+
+    await page.goto('/timing.html');
+    await expect(page.locator('#seasonal svg')).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('#loading')).toBeHidden();
+
+    // Twelve months, and the bars must straddle the zero line — a seasonal index
+    // averaging 1.0 cannot be all above or all below it.
+    const bars = page.locator('#seasonal .div-bar');
+    await expect(bars).toHaveCount(12);
+
+    const values = await page
+      .locator('#seasonal .div-bar .value-label')
+      .allTextContents();
+    const nums = values.map((v) => parseFloat(v.replace('−', '-')));
+    expect(Math.max(...nums), 'no month above the annual average').toBeGreaterThan(0);
+    expect(Math.min(...nums), 'no month below the annual average').toBeLessThan(0);
+
+    // The trend chart and the leaderboard both render.
+    await expect(page.locator('#history svg')).toBeVisible();
+    await expect(page.locator('#leaderboard .bar-row')).toHaveCount(15);
+
+    expect(errors).toEqual([]);
+  });
+
+  test('the cheapest month named in the verdict is the lowest bar', async ({ page }) => {
+    await page.goto('/timing.html');
+    await expect(page.locator('#seasonal svg')).toBeVisible({ timeout: 30_000 });
+
+    const stats = page.locator('#timing-stats .stat');
+    const cheapest = await stats.nth(0).locator('.value').textContent();
+    const dearest = await stats.nth(1).locator('.value').textContent();
+
+    // The prose and the chart must agree, or the page contradicts itself.
+    await expect(page.locator('#verdict')).toContainText(cheapest.trim());
+    await expect(page.locator('#verdict')).toContainText(dearest.trim());
+
+    const rows = await page.locator('#seasonal-table tbody tr').allTextContents();
+    expect(rows).toHaveLength(12);
+
+    const parsed = rows.map((r) => {
+      const [month, delta] = r.trim().split(/\s{2,}|\t|\n/).filter(Boolean);
+      return { month, delta: parseFloat(delta.replace('−', '-')) };
+    });
+    const lowest = parsed.reduce((a, b) => (a.delta <= b.delta ? a : b));
+    expect(lowest.month).toBe(cheapest.trim());
+  });
+
+  test('switching county on the timing page changes the pattern', async ({ page }) => {
+    await page.goto('/timing.html');
+    await expect(page.locator('#seasonal svg')).toBeVisible({ timeout: 30_000 });
+
+    const before = await page.locator('#seasonal-caption').textContent();
+
+    // Suffolk County, MA runs on the academic calendar rather than the summer
+    // moving season, so its pattern differs from a typical metro's.
+    await page.locator('#county-picker').fill('Suffolk County, MA');
+    await page.locator('#county-picker').dispatchEvent('change');
+
+    await expect(page.locator('#seasonal-caption')).not.toHaveText(before);
+    await expect(page.locator('#verdict')).toContainText('Suffolk County');
+  });
+
   test('the method page loads and covers the limitations', async ({ page }) => {
     const errors = watchForErrors(page);
     await page.goto('/method.html');
@@ -392,6 +463,11 @@ test.describe('affordability index', () => {
     // The limitations section is the part that must never quietly disappear.
     await expect(page.locator('#limits')).toContainText('Local income tax is modelled for two cities only');
     await expect(page.locator('#comp')).toContainText('not location-adjusted');
+    // The method page describes the data the site actually uses. It has gone
+    // stale before, on exactly this claim.
+    await expect(page.locator('#sources')).toContainText('B25031');
+    await expect(page.locator('#sources')).toContainText('one bedroom is the default');
+    await expect(page.locator('#timing')).toContainText(/centred moving average/i);
     await expect(page.locator('a[href="index.html"]').first()).toBeVisible();
 
     expect(errors).toEqual([]);

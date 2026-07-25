@@ -15,6 +15,7 @@
     <a class="brand" href="index.html">Tech&nbsp;Affordability&nbsp;Index</a>
     <div class="topnav-links">
       <a href="index.html">Explore</a>
+      <a href="timing.html">When to move</a>
       <a href="method.html" aria-current="page">Method</a>
       <a href="https://github.com/varad-more/Tech-affordability-index">Source</a>
       <button id="theme-toggle" type="button">Dark</button>
@@ -41,6 +42,7 @@
     <a href="#bands">The band model</a>
     <a href="#tax">The tax engine</a>
     <a href="#map">The map</a>
+    <a href="#timing">Seasonality</a>
     <a href="#comp">Compensation</a>
     <a href="#limits">Known limitations</a>
     <a href="#reproduce">Reproducing it</a>
@@ -87,11 +89,27 @@
 
     <h3>Rent, complete coverage — Census ACS</h3>
     <table class="facts">
-      <tr><th>What</th><td>Median gross rent — contract rent plus utilities — table B25064</td></tr>
+      <tr><th>What</th><td>Median gross rent — contract rent plus utilities — table B25031, broken out by bedroom count</td></tr>
       <tr><th>Geography</th><td>County</td></tr>
       <tr><th>Refresh</th><td>Annual, five-year rolling estimate</td></tr>
-      <tr><th>Coverage</th><td>3,123 of 3,142 counties (99.4%)</td></tr>
+      <tr><th>Coverage</th><td>3,123 of 3,142 counties (99.4%); 2,920 also publish a one-bedroom figure</td></tr>
     </table>
+
+    <h4>Why unit size matters, and why one bedroom is the default</h4>
+    <p>
+      The whole model prices <strong>one adult with no children</strong> — the same
+      household MIT budgets for. But an all-bedroom median is pulled upward by
+      family-sized units, so using it prices a single person against housing they would
+      not rent. King County is $2,035 across all sizes against $1,813 for a one-bedroom;
+      Los Angeles is $1,893 against $1,661. That is a 10–17% overstatement flowing
+      straight into every salary threshold, which is why the default is a one-bedroom
+      rather than the headline median.
+    </p>
+    <p>
+      Studio and two-bedroom figures are available too. Rarer sizes are suppressed in
+      thin counties, so each falls back to the overall median and says which figure it
+      used rather than dropping the county from the map.
+    </p>
     <p>
       ZORI is current but partial; ACS is complete but lagged. Both are offered, and the
       site <strong>never converts one into the other</strong>. A single national ZORI/ACS
@@ -316,6 +334,63 @@
       same failure that left this project's <em>original</em> rent extractor silently
       serving four hardcoded rows for its entire existence — the bug that motivated
       rebuilding it to fail loudly.
+    </p>
+  </section>
+
+  <section id="timing">
+    <h2>Seasonality — the "when to move" page</h2>
+    <p>
+      The county rent file carries 138 monthly columns going back to 2015, and the
+      affordability model reads exactly two of them. The rest is a decade of history that
+      answers a different question: not <em>where</em> to move, but <em>when</em>.
+    </p>
+
+    <h3>Classical multiplicative decomposition</h3>
+    <p>For each county's monthly series:</p>
+<pre><code>trend[i]  = 12-month CENTRED moving average, half weight on the two end months
+ratio[i]  = value[i] / trend[i]
+index[m]  = mean of ratio[i] for every i falling in calendar month m
+            normalised so the twelve indices average to exactly 1.0</code></pre>
+    <p>
+      The centring is what makes it work. A trailing average lags the series by six
+      months and would smear the seasonal peak into the wrong months entirely. The half
+      weight on the first and last month of the window keeps it spanning exactly twelve
+      months, so no calendar month is counted twice.
+    </p>
+    <p>
+      The result reads directly: 0.98 for January means January rents sit about 2% below
+      that year's own trend. Dividing by the trend, rather than subtracting it, is what
+      separates the seasonal pattern from the long-run climb — a market growing 5% a year
+      would otherwise show every autumn as "expensive" purely because it came later.
+    </p>
+
+    <h3>What is deliberately excluded</h3>
+    <p>
+      A calendar month needs at least three observations before it enters its average, so
+      about half the counties in the rent file are shown with a trend chart but no
+      seasonal pattern. Publishing a January estimate built from one January would be
+      false precision dressed as insight.
+    </p>
+
+    <h3>How large the effect really is</h3>
+    <p>
+      Median peak-to-trough swing, among counties that clear the bar: about
+      <strong>2%</strong>. On a $2,000 rent that is roughly $40 a month. Real, worth
+      knowing, and far smaller than the differences between places — which is why the page
+      says so at the top rather than in a footnote.
+    </p>
+    <p class="callout">
+      ZORI is a <em>smoothed</em> index, and smoothing damps precisely the within-year
+      movement being measured. These amplitudes are therefore conservative: the swing in
+      raw listing prices is probably larger. That is the safe direction for an error to
+      run, but it is still an error, and it is the reason no month is presented as a
+      prediction.
+    </p>
+    <p>
+      A useful sanity check on the method: the counties with the largest swings are
+      Newport County RI, Grand Traverse MI, Pitkin CO and Barnstable MA — Cape Cod, Aspen,
+      and two lake resorts. Markets dominated by one short season are exactly where a
+      seasonal index should light up, and it does.
     </p>
   </section>
 

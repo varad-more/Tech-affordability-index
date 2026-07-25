@@ -66,6 +66,11 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
+      # A job-level permissions block REPLACES the workflow-level one rather than
+      # merging with it, so `contents: read` has to be restated here. Without it
+      # the token cannot see the repository and checkout fails with a misleading
+      # "Repository not found" — which reads like the repo was deleted.
+      contents: read
       pages: write
       id-token: write
     environment:

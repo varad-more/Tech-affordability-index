@@ -62,6 +62,201 @@ function attachTooltip(target, html) {
   target.addEventListener('blur', hide);
 }
 
+/* ------------------------------------------------------------ time series */
+
+/**
+ * Monthly rent over time.
+ *
+ * A line, because the x-axis is continuous time and the reader's question is
+ * about shape — is this climbing, flattening, falling? Bars would imply
+ * discrete, independent periods.
+ *
+ * The y-axis deliberately does NOT start at zero. For an index that has never
+ * been near zero, a zero baseline compresses years of movement into a flat strip
+ * at the top of the plot and hides the thing the chart exists to show. The axis
+ * is labelled so the truncation is visible rather than sneaky.
+ *
+ * @param {Array<{ month: string, value: number|null }>} points
+ */
+export function timeSeries(mount, points, { valueFormat = money } = {}) {
+  mount.replaceChildren();
+
+  const W = 880;
+  const H = 260;
+  const padL = 58;
+  const padR = 14;
+  const padT = 14;
+  const padB = 30;
+
+  const real = points.filter((p) => p.value !== null);
+  if (real.length < 2) return;
+
+  const values = real.map((p) => p.value);
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
+  const span = hi - lo || 1;
+  const yLo = lo - span * 0.12;
+  const yHi = hi + span * 0.12;
+
+  const x = (i) => padL + (i / (points.length - 1)) * (W - padL - padR);
+  const y = (v) => H - padB - ((v - yLo) / (yHi - yLo)) * (H - padT - padB);
+
+  const svg = el('svg', {
+    viewBox: `0 0 ${W} ${H}`,
+    width: W,
+    height: H,
+    role: 'img',
+    'aria-label': `Monthly rent from ${points[0].month} to ${points.at(-1).month}`,
+  });
+
+  // Horizontal gridlines with value labels.
+  const ticks = 4;
+  for (let t = 0; t <= ticks; t++) {
+    const v = yLo + ((yHi - yLo) * t) / ticks;
+    const gy = y(v);
+    svg.appendChild(el('line', { x1: padL, y1: gy, x2: W - padR, y2: gy, class: 'tick-line' }));
+    svg.appendChild(
+      el('text', { x: padL - 8, y: gy + 4, class: 'axis-label', 'text-anchor': 'end' }, valueFormat(v)),
+    );
+  }
+
+  // Year labels along the bottom, at each January only. Matching on the MONTH
+  // component specifically: every value here carries a day of 01, so a looser
+  // test labels all seventy-two months and smears them into one illegible line.
+  points.forEach((p, i) => {
+    if (!/^\d{4}-01-\d{2}$/.test(p.month)) return;
+    const year = p.month.slice(0, 4);
+    svg.appendChild(
+      el('text', { x: x(i), y: H - 8, class: 'axis-label', 'text-anchor': 'middle' }, year),
+    );
+  });
+
+  // Break the path at gaps rather than drawing a straight line across missing
+  // months, which would invent data.
+  let d = '';
+  let pen = 'M';
+  points.forEach((p, i) => {
+    if (p.value === null) {
+      pen = 'M';
+      return;
+    }
+    d += `${pen}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`;
+    pen = 'L';
+  });
+
+  svg.appendChild(
+    el('path', { d, class: 'spark-line', 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }),
+  );
+
+  // One hit target per point, wide enough to be usable, invisible until hovered.
+  const step = (W - padL - padR) / (points.length - 1);
+  points.forEach((p, i) => {
+    if (p.value === null) return;
+    const g = el('g', { class: 'ts-point', tabindex: '0' });
+    g.appendChild(
+      el('rect', {
+        x: x(i) - step / 2, y: padT, width: Math.max(step, 3), height: H - padT - padB,
+        fill: 'transparent',
+      }),
+    );
+    g.appendChild(el('circle', { cx: x(i), cy: y(p.value), r: 3.5, class: 'ts-dot' }));
+
+    attachTooltip(
+      g,
+      `<div class="t-title">${p.label ?? p.month}</div>` +
+        `<div class="t-row">${valueFormat(p.value)}/mo</div>`,
+    );
+    svg.appendChild(g);
+  });
+
+  svg.appendChild(el('line', { x1: padL, y1: padT, x2: padL, y2: H - padB, class: 'baseline' }));
+  mount.appendChild(svg);
+}
+
+/* --------------------------------------------------------- diverging bars */
+
+/**
+ * Deviation from a baseline, above and below zero.
+ *
+ * This is a diverging encoding, not a sequential one: the value has a meaningful
+ * midpoint (the annual average) and a direction either side of it. So it gets two
+ * hues and a neutral middle, never a single ramp — a ramp would imply that
+ * "below average" and "above average" are the same kind of thing, only more so.
+ *
+ * @param {Array<{ label: string, value: number, tooltip?: string }>} bars
+ *        values are signed fractions, e.g. -0.019 for 1.9% below average
+ */
+export function divergingBars(mount, bars, { format = (v) => pct(v, 1), highlight } = {}) {
+  mount.replaceChildren();
+
+  const W = 880;
+  const barW = 46;
+  const gap = 10;
+  const midY = 96;
+  const maxBar = 62;
+  const H = 200;
+
+  const peak = Math.max(...bars.map((b) => Math.abs(b.value)), 0.001);
+  const scale = (v) => (Math.abs(v) / peak) * maxBar;
+
+  const totalW = bars.length * barW + (bars.length - 1) * gap;
+  const startX = (W - totalW) / 2;
+
+  const svg = el('svg', {
+    viewBox: `0 0 ${W} ${H}`,
+    width: W,
+    height: H,
+    role: 'img',
+    'aria-label': 'Rent by calendar month, as a deviation from the annual average',
+  });
+
+  // Zero line: the reference the whole chart is read against.
+  svg.appendChild(el('line', { x1: 16, y1: midY, x2: W - 16, y2: midY, class: 'baseline' }));
+
+  bars.forEach((bar, i) => {
+    const x = startX + i * (barW + gap);
+    const height = scale(bar.value);
+    const above = bar.value > 0;
+    const y = above ? midY - height : midY;
+
+    const g = el('g', { class: 'div-bar', tabindex: '0' });
+    g.appendChild(
+      el('rect', {
+        x, y, width: barW, height: Math.max(height, 1), rx: 3,
+        fill: above ? 'var(--div-warm)' : 'var(--div-cool)',
+        opacity: highlight && !highlight.includes(i) ? 0.42 : 1,
+      }),
+    );
+
+    // Month label always on the outside of the bar, so it never sits on the fill.
+    g.appendChild(
+      el(
+        'text',
+        { x: x + barW / 2, y: above ? midY + 16 : midY - 7, class: 'cat-label', 'text-anchor': 'middle' },
+        bar.label,
+      ),
+    );
+    g.appendChild(
+      el(
+        'text',
+        {
+          x: x + barW / 2,
+          y: above ? y - 6 : y + height + 14,
+          class: 'value-label',
+          'text-anchor': 'middle',
+          'font-weight': '600',
+        },
+        format(bar.value),
+      ),
+    );
+
+    attachTooltip(g, bar.tooltip ?? `<div class="t-row">${format(bar.value)}</div>`);
+    svg.appendChild(g);
+  });
+
+  mount.appendChild(svg);
+}
+
 /* ------------------------------------------------------------ stacked bar */
 
 /**
@@ -269,11 +464,13 @@ function barPath(x, y, w, h, r) {
  * long-named categories. Bar length carries the value, so the fill stays a
  * single hue rather than redundantly re-encoding it.
  */
-export function rankedBarChart(mount, rows, { threshold, thresholdLabel } = {}) {
+export function rankedBarChart(mount, rows, { threshold, thresholdLabel, gutter } = {}) {
   mount.replaceChildren();
 
   const W = 880;
-  const gutterL = 116;
+  // Metro names fit in 116px; "Barnstable County, MA" does not, and a clipped
+  // label is worse than a slightly shorter bar.
+  const gutterL = gutter ?? 116;
   const gutterR = 56;
   const rowH = 26;
   const barH = 14;

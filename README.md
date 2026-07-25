@@ -1,6 +1,6 @@
 # Tech Affordability Index
 
-### → **[Live site](https://varadmore.me/Tech-affordability-index/)** · **[Method](https://varadmore.me/Tech-affordability-index/method.html)**
+### → **[Live site](https://varadmore.me/Tech-affordability-index/)** · **[When to move](https://varadmore.me/Tech-affordability-index/timing.html)** · **[Method](https://varadmore.me/Tech-affordability-index/method.html)**
 
 **What salary does a place actually need — and does your offer clear it?**
 
@@ -70,6 +70,7 @@ never converts one into the other.
 | **Ranked bars** | Across the 21 tech hubs, where does rent eat least of monthly pay? |
 | **Heatmap** | How do all 21 hubs compare across every reference offer at once? |
 | **Small multiples** | How does it change over four years as equity vests? |
+| **Seasonality** | Which month is a lease cheapest to sign here, and is the swing worth planning around? |
 
 ## Running it
 
@@ -82,7 +83,7 @@ npm test             # tax engine, bands, projection, ingest, page claims
 npm run test:e2e     # browser: asserts the charts actually drew
 npm run test:all     # both
 
-npm run refresh      # all three rent sources
+npm run refresh      # all rent sources + the seasonal decomposition
 npm run fetch-county-living-wage   # cost of living, MIT (resumable)
 npm run build-basemap              # boundaries + gazetteer -> projected SVG paths
 ```
@@ -107,6 +108,13 @@ pipeline that silently falls back to hardcoded values looks identical to a
 working one. That is not hypothetical: it is exactly what this project did
 before the rewrite, for its entire existence.
 
+**The seasonal maths is tested against synthetic series.** A classical
+multiplicative decomposition is easy to get subtly wrong — a trailing average
+instead of a centred one shifts every peak by six months, and subtracting the
+trend instead of dividing by it reads growth as seasonality. So the tests build
+series from known trend times known seasonal factors and assert the
+decomposition recovers those factors, including through a strong upward trend.
+
 **The tests pin the prose, not just the code.** The unit suite asserts the
 factual claims the pages make about the reference offers — that Google's
 front-loaded grant decays, that Amazon's back-loaded one climbs past it, that the
@@ -125,12 +133,14 @@ and no horizontal overflow at three widths.
 
 ```
 index.html            the tool
+timing.html           when in the year a lease is cheapest
 method.html           full methodology, sources and limitations
 assets/               rendering — charts.js and map.js are hand-rolled SVG, zero deps
 src/tax.js            tax engine (holds no constants)
 src/tax-data.js       every bracket and rate, each with its source
 src/bands.js          survival / getting by / comfortable, by inverting the tax engine
 src/projection.js     Albers USA, pinned to d3-geo by fixture
+src/seasonality.js    classical multiplicative decomposition
 scripts/              ingests — each fails loudly, none falls back
 data/                 committed, dated, diffable
 test/                 node --test
@@ -152,6 +162,8 @@ carries the full list. The ones that bite hardest:
   tier-3 metro than in the Bay Area, but no authoritative per-metro table is
   published and DOL's filed-wage data is bot-blocked. Edit the salary field.
 - **Single filer, standard deduction, county-level geography.**
+- **Seasonality is a historical average, not a forecast**, and the median swing
+  is only about 2% — where you move dwarfs when.
 - **On the Zillow basis, utilities are missing** — ZORI excludes them and MIT
   puts them in the housing row this project discards. The Census basis includes
   them.

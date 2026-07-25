@@ -15,7 +15,8 @@
     "fetch-living-wage": "node scripts/fetch-living-wage.mjs",
     "fetch-county-living-wage": "node scripts/fetch-county-living-wage.mjs",
     "build-basemap": "node scripts/build-basemap.mjs",
-    "refresh": "npm run fetch-rents && npm run fetch-county-rents && npm run fetch-acs-rents",
+    "build-rent-history": "node scripts/build-rent-history.mjs",
+    "refresh": "npm run fetch-rents && npm run fetch-county-rents && npm run fetch-acs-rents && npm run build-rent-history",
     "previews": "node scripts/render-previews.mjs"
   },
   "license": "MIT",
