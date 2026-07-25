@@ -355,6 +355,13 @@ svg text { font-family: var(--font); }
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 12px;
+  /* Panels stretch to equal height in the grid; pushing the plot to the bottom
+     of each one lines every plot area up on a common baseline. Without this,
+     a longer description shifts its chart down the page and a panel can look
+     lower than a neighbour whose value is actually smaller — which defeats the
+     shared vertical scale the SVGs already use. */
+  display: flex;
+  flex-direction: column;
 }
 
 .multiple h3 {
@@ -368,6 +375,8 @@ svg text { font-family: var(--font); }
   margin: 0 0 8px;
   min-height: 2.2em;
 }
+
+.multiple .plot { margin-top: auto; }
 
 /* ---- tooltip ---- */
 

@@ -38,7 +38,7 @@
       "vesting": [0.05, 0.15, 0.4, 0.4],
       "bonuses": [70000, 45000, 0, 0],
       "equityHaircut": 0.85,
-      "vestingNote": "Back-loaded: 5/15/40/40, with sign-on bonuses propping up years 1-2. Year 3 is the cliff everyone warns about."
+      "vestingNote": "Back-loaded 5/15/40/40, but the sign-on bonuses are sized to offset it: total pay stays nearly flat. The cliff bites only if the grant underperforms."
     },
     {
       "id": "startup-series-b",

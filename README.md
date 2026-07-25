@@ -49,16 +49,27 @@ a back-loaded one has a year-3 cliff that a single total-comp number hides entir
 
 ## Running it
 
-No dependencies, no build step, no database.
+**Zero runtime dependencies** — the deployed site is flat files with no build
+step and no database. Playwright is a dev dependency, used only for tests.
 
 ```bash
 npm run serve        # http://localhost:4173
-npm test             # 53 tests over the tax and ingestion logic
+npm test             # 53 unit tests: tax engine + ingestion
+npm run test:e2e     # 11 browser tests against the real page
+npm run test:all     # both
 npm run fetch-rents  # refresh data/rents.json from Zillow
 ```
 
 Deploying: enable GitHub Pages with **GitHub Actions** as the source. `ci.yml`
-tests and publishes on every push to `main`.
+runs unit tests, then browser tests, then publishes on every push to `main`.
+
+### Why there are browser tests
+
+The page renders entirely from client-side ES modules. A broken import or a
+runtime error still returns **HTTP 200** with an empty panel — asset checks and
+unit tests both pass while the site shows nothing. The Playwright suite asserts
+that the charts actually drew: 21 bars in ascending order, 84 labelled heatmap
+cells, tooltips, dark mode, no horizontal overflow, and no console errors.
 
 ## Layout
 
@@ -71,7 +82,8 @@ src/affordability.js  the ratio math
 src/hubs.js           curated metro -> tax jurisdiction mapping
 scripts/fetch-rents.mjs   ZORI ingest
 data/rents.json       committed monthly by CI
-test/                 node --test
+test/                 node --test  (tax + ingestion)
+e2e/                  playwright   (the rendered page)
 ```
 
 Rolling to a new tax year means editing `src/tax-data.js` and nothing else.

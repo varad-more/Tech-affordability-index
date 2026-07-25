@@ -257,8 +257,19 @@ function renderMultiples() {
   const mount = $('#multiples');
   mount.replaceChildren();
 
-  for (const p of state.profiles.profiles) {
-    const res = affordability(p, { state: hub.state, local: hub.local, rent: hub.rent });
+  const results = state.profiles.profiles.map((p) => ({
+    profile: p,
+    res: affordability(p, { state: hub.state, local: hub.local, rent: hub.rent }),
+  }));
+
+  // One shared vertical scale across all four panels, so the shapes are
+  // genuinely comparable rather than each rescaled to its own range.
+  const allRatios = results.flatMap(({ res }) => res.years.map((y) => y.ratio)).filter((r) => r !== null);
+  const span = Math.max(...allRatios) - Math.min(...allRatios);
+  const pad = span === 0 ? 0.01 : span * 0.18;
+  const domain = [Math.min(...allRatios) - pad, Math.max(...allRatios) + pad];
+
+  for (const { profile: p, res } of results) {
 
     const panel = document.createElement('div');
     panel.className = 'multiple';
@@ -271,6 +282,7 @@ function renderMultiples() {
     meta.textContent = p.vestingNote;
 
     const chart = document.createElement('div');
+    chart.className = 'plot';
 
     panel.append(h3, meta, chart);
     mount.appendChild(panel);
@@ -280,6 +292,7 @@ function renderMultiples() {
       res.years.map((y) => ({ ...y, value: y.ratio })),
       {
         threshold: COST_BURDENED_THRESHOLD,
+        domain,
         formatPoint: (pt) => `
           <div class="t-title">${p.company} · year ${pt.year}</div>
           <div class="t-row">Gross ${money(pt.gross)}</div>
@@ -289,8 +302,14 @@ function renderMultiples() {
     );
   }
 
+  const thresholdVisible =
+    COST_BURDENED_THRESHOLD >= domain[0] && COST_BURDENED_THRESHOLD <= domain[1];
+
   $('#multiples-caption').textContent =
-    `${hub.city} · rent ${money(hub.rent)}/mo · dashed line marks the 30% threshold`;
+    `${hub.city} · rent ${money(hub.rent)}/mo · all four panels share one vertical scale` +
+    (thresholdVisible
+      ? ' · dashed line marks the 30% threshold'
+      : ' · every offer here stays well under the 30% threshold, which sits above this range');
 }
 
 function renderTable() {

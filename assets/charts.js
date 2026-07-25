@@ -294,7 +294,7 @@ export function rampLegend(mount, minLabel, maxLabel) {
  * series: four categorical hues would put yellow beside orange, and the shapes
  * are easier to compare side by side anyway.
  */
-export function sparkline(mount, points, { threshold, formatPoint } = {}) {
+export function sparkline(mount, points, { threshold, domain, formatPoint } = {}) {
   mount.replaceChildren();
 
   const W = 220;
@@ -305,8 +305,14 @@ export function sparkline(mount, points, { threshold, formatPoint } = {}) {
   const values = points.map((p) => p.value).filter((v) => v !== null);
   if (!values.length) return;
 
-  const lo = Math.min(...values, threshold ?? Infinity) * 0.9;
-  const hi = Math.max(...values, threshold ?? -Infinity) * 1.1;
+  // The caller supplies one domain shared by every panel. Letting each panel
+  // scale to its own values would make four different vertical scales look
+  // directly comparable, which is the classic small-multiples failure.
+  //
+  // The threshold is deliberately NOT folded into the domain: when every offer
+  // sits far below 30%, including it flattens the lines into the bottom of the
+  // plot and hides the vesting shape these panels exist to show.
+  const [lo, hi] = domain ?? [Math.min(...values) * 0.92, Math.max(...values) * 1.08];
 
   const x = (i) => padX + (i / Math.max(1, points.length - 1)) * (W - padX * 2);
   const y = (v) => H - padY - ((v - lo) / (hi - lo || 1)) * (H - padY * 2);

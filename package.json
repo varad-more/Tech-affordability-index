@@ -5,9 +5,14 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test \"test/*.test.mjs\"",
+    "test:e2e": "playwright test",
+    "test:all": "npm test && npm run test:e2e",
     "fetch-rents": "node scripts/fetch-rents.mjs",
     "serve": "node scripts/serve.mjs"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "@playwright/test": "^1.62.0"
+  }
 }
