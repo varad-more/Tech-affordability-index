@@ -54,10 +54,11 @@ step and no database. Playwright is a dev dependency, used only for tests.
 
 ```bash
 npm run serve        # http://localhost:4173
-npm test             # 53 unit tests: tax engine + ingestion
-npm run test:e2e     # 11 browser tests against the real page
+npm test             # unit: tax engine, ingestion, and the claims the page makes
+npm run test:e2e     # browser: asserts the charts actually drew
 npm run test:all     # both
 npm run fetch-rents  # refresh data/rents.json from Zillow
+npm run previews     # regenerate the README images from the live page
 ```
 
 Deploying: enable GitHub Pages with **GitHub Actions** as the source. `ci.yml`
@@ -68,8 +69,20 @@ runs unit tests, then browser tests, then publishes on every push to `main`.
 The page renders entirely from client-side ES modules. A broken import or a
 runtime error still returns **HTTP 200** with an empty panel — asset checks and
 unit tests both pass while the site shows nothing. The Playwright suite asserts
-that the charts actually drew: 21 bars in ascending order, 84 labelled heatmap
-cells, tooltips, dark mode, no horizontal overflow, and no console errors.
+that the charts actually drew: one bar per metro in ascending order, every
+heatmap cell labelled, tooltips, dark mode, no horizontal overflow, and no
+console errors.
+
+It also guards things assertions alone kept missing. Two defects in the vesting
+panels were caught only by looking at a screenshot: each panel had been scaling
+to its own y-domain (four incomparable scales presented side by side), and the
+plot areas were not aligned on the page, so a longer description pushed one
+chart down and made a higher value appear lower. Both are now regression-tested.
+
+The unit suite additionally pins **the factual claims the page makes** about the
+reference offers. If the profile data changes so that, say, Google no longer
+decays past Amazon by year four, the tests fail and flag the prose as stale —
+a claim the numbers no longer support is a correctness bug, not a wording nit.
 
 ## Layout
 

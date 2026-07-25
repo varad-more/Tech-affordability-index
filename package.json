@@ -9,6 +9,7 @@
     "test:e2e": "playwright test",
     "test:all": "npm test && npm run test:e2e",
     "fetch-rents": "node scripts/fetch-rents.mjs",
+    "previews": "node scripts/render-previews.mjs",
     "serve": "node scripts/serve.mjs"
   },
   "license": "MIT",

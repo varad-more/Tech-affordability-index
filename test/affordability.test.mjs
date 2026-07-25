@@ -1,5 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import {
   affordability,
@@ -81,6 +82,40 @@ describe('affordability', () => {
 
   test('rent of zero costs nothing', () => {
     assert.equal(affordability(PROFILE, { state: 'TX', rent: 0 }).baseRatio, 0);
+  });
+});
+
+/**
+ * The page makes specific factual claims about the shipped profiles. If the
+ * profile data is edited, these fail and flag the copy as stale — a claim in
+ * index.html that the numbers no longer support is a correctness bug, not a
+ * wording nit.
+ */
+describe('claims the page makes about the reference offers', () => {
+  const { profiles } = JSON.parse(
+    readFileSync(new URL('../data/profiles.json', import.meta.url), 'utf8'),
+  );
+  const byId = Object.fromEntries(profiles.map((p) => [p.id, p]));
+  const grossY = (id, y) => grossForYear(byId[id], y);
+
+  test('Google leads Amazon in year 1 but is overtaken by year 4', () => {
+    assert.ok(grossY('google-l4', 0) > grossY('amazon-l5', 0), 'Google should lead in year 1');
+    assert.ok(grossY('google-l4', 3) < grossY('amazon-l5', 3), 'Amazon should lead by year 4');
+  });
+
+  test("Google's front-loaded grant makes its pay decay year on year", () => {
+    assert.ok(grossY('google-l4', 3) < grossY('google-l4', 0));
+  });
+
+  test("Amazon's sign-on bonuses keep total pay roughly flat, so there is no year-3 cliff", () => {
+    const years = [0, 1, 2, 3].map((y) => grossY('amazon-l5', y));
+    const swing = (Math.max(...years) - Math.min(...years)) / Math.max(...years);
+    assert.ok(swing < 0.05, `Amazon pay swings ${(swing * 100).toFixed(1)}%, expected under 5%`);
+  });
+
+  test('the startup profile counts no equity at all', () => {
+    assert.equal(byId['startup-series-b'].equityHaircut, 0);
+    assert.equal(grossY('startup-series-b', 0), byId['startup-series-b'].baseSalary);
   });
 });
 
