@@ -1,0 +1,55 @@
+{
+  "note": "Illustrative reference offers, not a live feed. Compensation is the one input you are expected to overwrite with your own numbers — rent is the part this project keeps current automatically.",
+  "source": {
+    "name": "Levels.fyi published medians",
+    "url": "https://www.levels.fyi/",
+    "asOf": "2026-07"
+  },
+  "equityHaircutRationale": "Unvested equity is not cash. Public-company RSUs are discounted for price risk between grant and vest; illiquid private equity is discounted to zero because you cannot pay rent with it.",
+  "profiles": [
+    {
+      "id": "google-l4",
+      "company": "Google",
+      "title": "L4 Software Engineer",
+      "baseSalary": 175000,
+      "rsuGrant": 300000,
+      "vesting": [0.33, 0.33, 0.22, 0.12],
+      "bonuses": [26000, 26000, 26000, 26000],
+      "equityHaircut": 0.85,
+      "vestingNote": "Front-loaded: 33/33/22/12 pays out early."
+    },
+    {
+      "id": "meta-e4",
+      "company": "Meta",
+      "title": "E4 Software Engineer",
+      "baseSalary": 185000,
+      "rsuGrant": 400000,
+      "vesting": [0.25, 0.25, 0.25, 0.25],
+      "bonuses": [25000, 25000, 25000, 25000],
+      "equityHaircut": 0.85,
+      "vestingNote": "Even 25% a year over four years."
+    },
+    {
+      "id": "amazon-l5",
+      "company": "Amazon",
+      "title": "L5 Software Engineer (SDE II)",
+      "baseSalary": 185000,
+      "rsuGrant": 220000,
+      "vesting": [0.05, 0.15, 0.4, 0.4],
+      "bonuses": [70000, 45000, 0, 0],
+      "equityHaircut": 0.85,
+      "vestingNote": "Back-loaded: 5/15/40/40, with sign-on bonuses propping up years 1-2. Year 3 is the cliff everyone warns about."
+    },
+    {
+      "id": "startup-series-b",
+      "company": "Startup (Series B)",
+      "title": "Senior Software Engineer",
+      "baseSalary": 200000,
+      "rsuGrant": 150000,
+      "vesting": [0.25, 0.25, 0.25, 0.25],
+      "bonuses": [0, 0, 0, 0],
+      "equityHaircut": 0,
+      "vestingNote": "Equity discounted to zero: private shares are illiquid and cannot cover rent."
+    }
+  ]
+}

@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tech Affordability Index — what rent actually costs you, by metro</title>
+  <meta name="description" content="How much of a tech paycheck rent really takes, by metro, on rent data refreshed monthly from Zillow and current-year tax math.">
+  <link rel="stylesheet" href="assets/styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>🏙️</text></svg>">
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <div>
+      <h1>What rent actually costs you</h1>
+      <p class="tagline">
+        Cost-of-living calculators go stale and quietly compare gross salaries. This one
+        recomputes rent against <strong>take-home pay</strong> — after federal, state, city
+        and payroll tax — on rent data that refreshes every month.
+      </p>
+      <div class="freshness" id="freshness"></div>
+    </div>
+    <button id="theme-toggle" type="button">Dark</button>
+  </header>
+
+  <section class="panel">
+    <h2>Your offer</h2>
+    <p class="sub">
+      Start from a reference offer, then overwrite any field with your own numbers.
+      Compensation is the input you supply; rent is the part kept current for you.
+    </p>
+
+    <div class="presets" id="presets"></div>
+
+    <div class="fields">
+      <div class="field">
+        <label for="base">Base salary</label>
+        <input id="base" type="number" min="0" step="1000" inputmode="numeric">
+        <div class="hint">Drives the headline number</div>
+      </div>
+      <div class="field">
+        <label for="grant">Equity grant (4-year)</label>
+        <input id="grant" type="number" min="0" step="5000" inputmode="numeric">
+        <div class="hint">Total value at grant</div>
+      </div>
+      <div class="field">
+        <label for="bonus">Year-1 cash bonus</label>
+        <input id="bonus" type="number" min="0" step="1000" inputmode="numeric">
+        <div class="hint">Target bonus or sign-on</div>
+      </div>
+      <div class="field">
+        <label for="haircut">Equity haircut</label>
+        <input id="haircut" type="number" min="0" max="100" step="5" inputmode="numeric">
+        <div class="hint">% of grant you actually count. 0 for illiquid private shares.</div>
+      </div>
+    </div>
+
+    <div class="stats" id="stats"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Rent as a share of monthly take-home</h2>
+    <p class="sub">
+      Base salary only — no equity, no bonus. This is the number that decides whether you
+      can make rent every month, and it is the one a total-comp figure flatters most.
+      The dashed line is HUD's 30% cost-burdened threshold.
+    </p>
+    <div class="chart-scroll"><div id="bars"></div></div>
+    <p class="sub" id="bars-caption" style="margin-top:12px"></p>
+
+    <details class="table-view">
+      <summary>View as table</summary>
+      <div class="chart-scroll"><table id="table"></table></div>
+    </details>
+  </section>
+
+  <section class="panel">
+    <h2>Every metro against every offer</h2>
+    <p class="sub">
+      Year-1 share of take-home, counting bonus and vested equity. Rows follow the ranking
+      above. Amazon's column reads worse early because its equity is back-loaded — the
+      grant is real, it just has not arrived yet.
+    </p>
+    <div class="chart-scroll"><div id="heatmap"></div></div>
+    <div id="heatmap-legend"></div>
+  </section>
+
+  <section class="panel">
+    <h2>How it changes as equity vests</h2>
+    <p class="sub">
+      The same offer across four years in one metro. Vesting shape matters as much as the
+      headline total: a front-loaded grant pays rent now, a back-loaded one pays it later.
+    </p>
+
+    <div class="field" style="max-width:230px;margin-bottom:18px">
+      <label for="city-picker">Metro</label>
+      <select id="city-picker"></select>
+    </div>
+
+    <div class="multiples" id="multiples"></div>
+    <p class="sub" id="multiples-caption" style="margin-top:14px"></p>
+  </section>
+
+  <footer class="notes">
+    <h2>Method and caveats</h2>
+    <ul>
+      <li>
+        <strong>Rent</strong> is the Zillow Observed Rent Index — smoothed asking rents,
+        metro level, <em>all home types</em>. Zillow publishes no bedroom-level metro
+        series, so this is not a one-bedroom median and is not labelled as one.
+      </li>
+      <li>
+        <strong>Metro, not neighbourhood.</strong> "San Francisco" covers the whole
+        metropolitan area, so it reads lower than a downtown listing.
+      </li>
+      <li>
+        <strong>Tax</strong> is computed for <span id="tax-year"></span>: federal brackets,
+        FICA with the Social Security wage cap and the additional Medicare surtax, each
+        state's own brackets and standard deduction, state payroll levies (CA SDI, WA
+        PFML and WA Cares), and city income tax in New York City and Philadelphia.
+      </li>
+      <li>
+        <strong>Assumes</strong> a single filer taking the standard deduction, with no
+        dependents, no 401(k) deferral and no itemised deductions. Your real number will
+        differ.
+      </li>
+      <li>
+        <strong>Equity is discounted, not counted at face value.</strong> Unvested stock
+        is not cash; private company shares default to a 0% haircut because you cannot
+        pay rent with them.
+      </li>
+      <li>
+        The Washington, DC metro spans three tax jurisdictions and is modelled as
+        Northern Virginia.
+      </li>
+      <li>
+        Sources:
+        <a href="https://www.zillow.com/research/data/">Zillow Research</a>,
+        <a href="https://taxfoundation.org/data/all/state/state-income-tax-rates-2026/">Tax Foundation state brackets</a>,
+        <a href="https://taxfoundation.org/data/all/federal/2026-tax-brackets/">federal brackets</a>.
+      </li>
+    </ul>
+  </footer>
+
+</div>
+
+<script type="module" src="assets/app.js"></script>
+</body>
+</html>

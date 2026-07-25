@@ -1,0 +1,13 @@
+{
+  "name": "tech-affordability-index",
+  "version": "1.0.0",
+  "description": "What share of a tech paycheck rent actually eats, by metro, on current data.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node --test test/",
+    "fetch-rents": "node scripts/fetch-rents.mjs",
+    "serve": "node scripts/serve.mjs"
+  },
+  "license": "MIT"
+}

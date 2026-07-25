@@ -1,0 +1,224 @@
+{
+  "source": {
+    "name": "Zillow Observed Rent Index (ZORI)",
+    "url": "https://files.zillowstatic.com/research/public_csvs/zori/Metro_zori_uc_sfrcondomfr_sm_month.csv",
+    "homepage": "https://www.zillow.com/research/data/",
+    "metric": "Smoothed asking rent, all home types (SFR + condo + multifamily), metro level"
+  },
+  "asOf": "2026-06-30",
+  "fetchedAt": "2026-07-25T16:37:54.484Z",
+  "hubCount": 21,
+  "hubs": [
+    {
+      "id": "sf",
+      "city": "San Francisco",
+      "metro": "San Francisco, CA",
+      "state": "CA",
+      "local": null,
+      "rent": 3301,
+      "rentYearAgo": 3050,
+      "yoy": 0.0823808616519721
+    },
+    {
+      "id": "sjc",
+      "city": "San Jose",
+      "metro": "San Jose, CA",
+      "state": "CA",
+      "local": null,
+      "rent": 3729,
+      "rentYearAgo": 3511,
+      "yoy": 0.06235567599898857
+    },
+    {
+      "id": "la",
+      "city": "Los Angeles",
+      "metro": "Los Angeles, CA",
+      "state": "CA",
+      "local": null,
+      "rent": 2927,
+      "rentYearAgo": 2884,
+      "yoy": 0.01502945875518419
+    },
+    {
+      "id": "sd",
+      "city": "San Diego",
+      "metro": "San Diego, CA",
+      "state": "CA",
+      "local": null,
+      "rent": 2991,
+      "rentYearAgo": 2940,
+      "yoy": 0.017275531943484166
+    },
+    {
+      "id": "sea",
+      "city": "Seattle",
+      "metro": "Seattle, WA",
+      "state": "WA",
+      "local": null,
+      "rent": 2269,
+      "rentYearAgo": 2239,
+      "yoy": 0.01362770976973036
+    },
+    {
+      "id": "nyc",
+      "city": "New York",
+      "metro": "New York, NY",
+      "state": "NY",
+      "local": "NYC",
+      "rent": 3573,
+      "rentYearAgo": 3418,
+      "yoy": 0.045491953964033514
+    },
+    {
+      "id": "bos",
+      "city": "Boston",
+      "metro": "Boston, MA",
+      "state": "MA",
+      "local": null,
+      "rent": 3210,
+      "rentYearAgo": 3130,
+      "yoy": 0.02560873557809243
+    },
+    {
+      "id": "aus",
+      "city": "Austin",
+      "metro": "Austin, TX",
+      "state": "TX",
+      "local": null,
+      "rent": 1653,
+      "rentYearAgo": 1681,
+      "yoy": -0.016760067861578406
+    },
+    {
+      "id": "dal",
+      "city": "Dallas",
+      "metro": "Dallas, TX",
+      "state": "TX",
+      "local": null,
+      "rent": 1673,
+      "rentYearAgo": 1673,
+      "yoy": 0.000009216352654430258
+    },
+    {
+      "id": "den",
+      "city": "Denver",
+      "metro": "Denver, CO",
+      "state": "CO",
+      "local": null,
+      "rent": 1930,
+      "rentYearAgo": 1956,
+      "yoy": -0.013252447603377071
+    },
+    {
+      "id": "chi",
+      "city": "Chicago",
+      "metro": "Chicago, IL",
+      "state": "IL",
+      "local": null,
+      "rent": 2275,
+      "rentYearAgo": 2162,
+      "yoy": 0.0524493496769424
+    },
+    {
+      "id": "atl",
+      "city": "Atlanta",
+      "metro": "Atlanta, GA",
+      "state": "GA",
+      "local": null,
+      "rent": 1854,
+      "rentYearAgo": 1820,
+      "yoy": 0.01884474131097119
+    },
+    {
+      "id": "rdu",
+      "city": "Raleigh",
+      "metro": "Raleigh, NC",
+      "state": "NC",
+      "local": null,
+      "rent": 1689,
+      "rentYearAgo": 1684,
+      "yoy": 0.0027289323446029927
+    },
+    {
+      "id": "pdx",
+      "city": "Portland",
+      "metro": "Portland, OR",
+      "state": "OR",
+      "local": null,
+      "rent": 1805,
+      "rentYearAgo": 1798,
+      "yoy": 0.004194630173633985
+    },
+    {
+      "id": "phx",
+      "city": "Phoenix",
+      "metro": "Phoenix, AZ",
+      "state": "AZ",
+      "local": null,
+      "rent": 1733,
+      "rentYearAgo": 1734,
+      "yoy": -0.0003945549029639098
+    },
+    {
+      "id": "slc",
+      "city": "Salt Lake City",
+      "metro": "Salt Lake City, UT",
+      "state": "UT",
+      "local": null,
+      "rent": 1638,
+      "rentYearAgo": 1628,
+      "yoy": 0.0060707948389409835
+    },
+    {
+      "id": "mia",
+      "city": "Miami",
+      "metro": "Miami, FL",
+      "state": "FL",
+      "local": null,
+      "rent": 2695,
+      "rentYearAgo": 2664,
+      "yoy": 0.011512787871067225
+    },
+    {
+      "id": "bna",
+      "city": "Nashville",
+      "metro": "Nashville, TN",
+      "state": "TN",
+      "local": null,
+      "rent": 1810,
+      "rentYearAgo": 1803,
+      "yoy": 0.004113311781270918
+    },
+    {
+      "id": "msp",
+      "city": "Minneapolis",
+      "metro": "Minneapolis, MN",
+      "state": "MN",
+      "local": null,
+      "rent": 1727,
+      "rentYearAgo": 1669,
+      "yoy": 0.03424621864885057
+    },
+    {
+      "id": "phl",
+      "city": "Philadelphia",
+      "metro": "Philadelphia, PA",
+      "state": "PA",
+      "local": "PHL",
+      "rent": 1928,
+      "rentYearAgo": 1861,
+      "yoy": 0.03598637231518721
+    },
+    {
+      "id": "dc",
+      "city": "Washington, DC",
+      "metro": "Washington, DC",
+      "state": "VA",
+      "local": null,
+      "note": "Modelled as Northern Virginia; the metro also spans DC and Maryland, which tax differently.",
+      "rent": 2448,
+      "rentYearAgo": 2446,
+      "yoy": 0.0009613118893023958
+    }
+  ]
+}

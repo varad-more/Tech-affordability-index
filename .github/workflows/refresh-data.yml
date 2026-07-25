@@ -1,0 +1,45 @@
+name: Refresh rent data
+
+# Zillow publishes ZORI monthly, but the release date drifts — it landed on the
+# 16th in July 2026. A fixed monthly run that fires before the drop waits a full
+# extra month, so poll weekly instead: the ingest is a cheap read and the commit
+# step no-ops unless the data actually moved.
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Exits non-zero if the feed is unreachable, malformed, missing a tracked
+      # metro, or older than what is already committed. A failed run leaves the
+      # last good data in place rather than publishing placeholders.
+      - name: Fetch ZORI
+        run: node scripts/fetch-rents.mjs
+
+      - name: Verify the new data still passes
+        run: node --test "test/*.test.mjs"
+
+      - name: Commit if the data moved
+        run: |
+          if git diff --quiet -- data/rents.json; then
+            echo "No change in rent data."
+            exit 0
+          fi
+
+          ASOF=$(node -p "require('./data/rents.json').asOf")
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/rents.json
+          git commit -m "data: refresh rents to ${ASOF}"
+          git push
