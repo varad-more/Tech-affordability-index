@@ -1,34 +1,126 @@
 import { affordability, COST_BURDENED_THRESHOLD } from '../src/affordability.js';
-import { STATES, LOCAL, TAX_YEAR } from '../src/tax-data.js';
-import { rankedBarChart, heatmap, rampLegend, sparkline, pct, money } from './charts.js';
+import {
+  salaryBands, classify, monthlyNeeds, needsShareStep, NEEDS_SHARE_CLASSES,
+} from '../src/bands.js';
+import { totalTax } from '../src/tax.js';
+import { STATES, LOCAL, TAX_YEAR, UNMODELLED_LOCAL_TAX } from '../src/tax-data.js';
+import { CATEGORY_ORDER, CATEGORY_LABELS } from '../src/living-wage-parse.js';
+import {
+  rankedBarChart, heatmap, rampLegend, sparkline, salaryLadder, stackedBar,
+  pct, money,
+} from './charts.js';
+import { countyMap, rampLegendFor, BAND_STEP } from './map.js';
+import { initTheme } from './theme.js';
 
 const $ = (sel) => document.querySelector(sel);
+
+/** King County, WA — a hub with data on both rent bases and no state income tax. */
+const DEFAULT_COUNTY = '53033';
+
+/**
+ * The two rent measures, kept separate on purpose.
+ *
+ * They are not converted into one another. A single national ZORI/ACS multiplier
+ * was tested against the 1,351 counties carrying both and rejected: correlation
+ * 0.675, median error 11%, 90th-percentile error 27%. An 11% error in rent moves
+ * the salary thresholds by roughly the same proportion.
+ */
+const RENT_BASIS = {
+  acs: {
+    key: 'rentAcs',
+    label: 'Census ACS median gross rent',
+    short: 'Census ACS',
+    hint: 'Every county. Five-year average, includes utilities.',
+    includesUtilities: true,
+  },
+  zori: {
+    key: 'rentZori',
+    label: 'Zillow Observed Rent Index',
+    short: 'Zillow ZORI',
+    hint: 'Current month, but only where Zillow publishes an index.',
+    includesUtilities: false,
+  },
+};
 
 const state = {
   rents: null,
   profiles: null,
-  activeProfileId: 'google-l4',
+  counties: null,
+  countyList: null,
+  basemap: null,
+  map: null,
+  activeProfileId: 'google-l3',
   offer: null,
+  selectedCounty: DEFAULT_COUNTY,
+  rentBasis: 'acs',
   focusCity: 'sea',
 };
 
 /* ------------------------------------------------------------------ load */
 
 async function load() {
-  const [rents, profiles] = await Promise.all([
+  const [rents, profiles, countyZori, countyAcs, countyWage, basemap] = await Promise.all([
     fetch('data/rents.json').then((r) => r.json()),
     fetch('data/profiles.json').then((r) => r.json()),
+    fetch('data/county-rents.json').then((r) => r.json()),
+    fetch('data/county-acs-rents.json').then((r) => r.json()),
+    fetch('data/county-living-wage.json').then((r) => r.json()),
+    fetch('data/us-basemap.json').then((r) => r.json()),
   ]);
 
   state.rents = rents;
   state.profiles = profiles;
+  state.basemap = basemap;
 
-  selectProfile('google-l4');
-  renderMasthead();
+  const zoriByFips = new Map(countyZori.counties.map((c) => [c.fips, c]));
+  const acsByFips = new Map(countyAcs.counties.map((c) => [c.fips, c]));
+  // The basemap carries the Census gazetteer's official name and state for every
+  // county, so geography has exactly one source of truth across the project.
+  const geoByFips = new Map(basemap.counties.map((c) => [c.id, c]));
+
+  // Cost of living is the spine: a county with no budget cannot be scored on any
+  // rent basis. Rent is then attached from whichever sources have it.
+  state.counties = new Map();
+  for (const wage of countyWage.counties) {
+    const geo = geoByFips.get(wage.fips);
+    if (!geo?.st || !STATES[geo.st]) continue;
+
+    const zori = zoriByFips.get(wage.fips);
+    const acs = acsByFips.get(wage.fips);
+    if (!zori && !acs) continue;
+
+    state.counties.set(wage.fips, {
+      fips: wage.fips,
+      name: geo.name,
+      state: geo.st,
+      metro: zori?.metro ?? null,
+      rentZori: zori?.rent ?? null,
+      zoriYoy: zori?.yoy ?? null,
+      rentAcs: acs?.rent ?? null,
+      acsMoe: acs?.moe ?? null,
+      nonHousingMonthly: wage.nonHousingMonthly,
+      expenses: wage.e ?? null,
+      label: `${geo.name}, ${geo.st}`,
+    });
+  }
+
+  state.countyList = [...state.counties.values()].sort((a, b) => a.label.localeCompare(b.label));
+
+  selectProfile(state.activeProfileId);
+  renderMasthead(countyZori, countyAcs);
   renderPresets();
+  renderCountyPicker();
   renderCityPicker();
+  buildMap();
   bindInputs();
+  initTheme(() => {
+    // The heatmap picks its label ink from the resolved surface, so it must redraw.
+    renderHeatmap();
+  });
   renderAll();
+
+  $('#loading').hidden = true;
+  $('#app').hidden = false;
 }
 
 /* --------------------------------------------------------------- profile */
@@ -79,12 +171,25 @@ function bindInputs() {
     });
   }
 
+  $('#county-picker').addEventListener('change', (e) => {
+    const match = state.countyList.find((c) => c.label === e.target.value);
+    if (match) {
+      state.selectedCounty = match.fips;
+      renderCountyPanel();
+      paintMap();
+    }
+  });
+
+  $('#rent-basis').addEventListener('change', (e) => {
+    state.rentBasis = e.target.value;
+    renderCountyPanel();
+    paintMap();
+  });
+
   $('#city-picker').addEventListener('change', (e) => {
     state.focusCity = e.target.value;
     renderMultiples();
   });
-
-  $('#theme-toggle').addEventListener('click', toggleTheme);
 }
 
 function markCustom() {
@@ -96,6 +201,11 @@ function markCustom() {
 }
 
 /* ----------------------------------------------------------------- model */
+
+const basis = () => RENT_BASIS[state.rentBasis];
+
+/** Rent for a county on the active basis, or null if that source lacks it. */
+const rentOf = (county) => county[basis().key];
 
 function locationsFor(offer) {
   return state.rents.hubs.map((hub) => ({
@@ -109,17 +219,73 @@ function jurisdictionLabel(hub) {
   return hub.local ? `${st} + ${LOCAL[hub.local].name}` : st;
 }
 
+/**
+ * Monthly take-home for the current base salary, once per state.
+ *
+ * Painting the map means classifying ~3,100 counties on every keystroke.
+ * Take-home depends only on the tax jurisdiction, not the county, so it is
+ * computed 51 times instead of 3,100 — the per-county work is then one division.
+ */
+function netByStateFor(gross) {
+  const cache = new Map();
+  for (const code of Object.keys(STATES)) {
+    cache.set(code, totalTax(gross, { state: code, local: null }).net / 12);
+  }
+  return cache;
+}
+
+function paintDataForCounties() {
+  const nets = netByStateFor(state.offer.baseSalary);
+  const steps = new Map();
+  const bandCounts = {};
+  let withRent = 0;
+
+  for (const county of state.counties.values()) {
+    const rent = rentOf(county);
+    if (rent === null) continue;
+
+    withRent++;
+    const net = nets.get(county.state);
+    const needs = monthlyNeeds(rent, county.nonHousingMonthly);
+    const share = net > 0 ? needs / net : Infinity;
+
+    steps.set(county.fips, needsShareStep(share) ?? 6);
+    const band = classify(net, needs).id;
+    bandCounts[band] = (bandCounts[band] ?? 0) + 1;
+  }
+  return { steps, bandCounts, withRent };
+}
+
+const selectedCounty = () => state.counties.get(state.selectedCounty);
+
+/**
+ * The selected county's tax jurisdiction.
+ *
+ * City income tax is modelled for exactly two places, so it is matched on the
+ * specific county rather than assumed from the state.
+ */
+function localCodeFor(county) {
+  // New York County is Manhattan; the other four boroughs are separate counties.
+  const NYC_COUNTIES = new Set(['36061', '36047', '36005', '36081', '36085']);
+  if (NYC_COUNTIES.has(county.fips)) return 'NYC';
+  if (county.fips === '42101') return 'PHL'; // Philadelphia County is coterminous with the city
+  return null;
+}
+
 /* --------------------------------------------------------------- render */
 
-function renderMasthead() {
-  const { asOf, source, hubs } = state.rents;
-  const month = new Date(`${asOf}T00:00:00Z`).toLocaleDateString('en-US', {
+function renderMasthead(countyZori, countyAcs) {
+  const month = new Date(`${state.rents.asOf}T00:00:00Z`).toLocaleDateString('en-US', {
     month: 'long', year: 'numeric', timeZone: 'UTC',
   });
 
   $('#freshness').innerHTML =
-    `<span class="dot"></span> Rent data: <strong>${month}</strong> · ${hubs.length} metros · ${source.name}`;
-  $('#tax-year').textContent = TAX_YEAR;
+    `<span class="dot"></span> ${state.counties.size.toLocaleString()} counties · ` +
+    `Zillow rents <strong>${month}</strong> · Census ACS ${countyAcs.vintage} · ` +
+    `MIT living wage, ${countyZori.countyCount.toLocaleString()} counties on both`;
+
+  $('#tax-year-badge').textContent = TAX_YEAR;
+  $('#location-caveat').textContent = state.profiles.locationCaveat;
 }
 
 function renderPresets() {
@@ -130,7 +296,7 @@ function renderPresets() {
     const b = document.createElement('button');
     b.type = 'button';
     b.dataset.id = p.id;
-    b.textContent = `${p.company} ${p.title.split(' ')[0]}`;
+    b.textContent = `${p.company} ${p.short}`;
     b.setAttribute('aria-pressed', String(p.id === state.activeProfileId));
     b.addEventListener('click', () => {
       selectProfile(p.id);
@@ -141,6 +307,17 @@ function renderPresets() {
     });
     mount.appendChild(b);
   }
+}
+
+function renderCountyPicker() {
+  const list = $('#county-options');
+  list.replaceChildren();
+  for (const county of state.countyList) {
+    const o = document.createElement('option');
+    o.value = county.label;
+    list.appendChild(o);
+  }
+  $('#county-picker').value = selectedCounty()?.label ?? '';
 }
 
 function renderCityPicker() {
@@ -155,36 +332,79 @@ function renderCityPicker() {
   }
 }
 
-function renderStats() {
-  const rows = locationsFor(state.offer)
-    .filter((r) => r.result.baseRatio !== null)
-    .sort((a, b) => a.result.baseRatio - b.result.baseRatio);
+/* ------------------------------------------------------- county panel */
 
-  if (!rows.length) return;
+function renderCountyPanel() {
+  const county = selectedCounty();
+  if (!county) return;
 
-  const best = rows[0];
-  const worst = rows.at(-1);
-  const under = rows.filter((r) => r.result.baseRatio < COST_BURDENED_THRESHOLD).length;
+  $('#rent-basis-hint').textContent = basis().hint;
+  $('#county-picker').value = county.label;
 
-  const nets = rows.map((r) => r.result.baseMonthlyNet);
-  const spread = Math.max(...nets) - Math.min(...nets);
+  const rent = rentOf(county);
+  const local = localCodeFor(county);
+
+  $('#county-hint').textContent =
+    `${STATES[county.state].name}${local ? ` · ${LOCAL[local].name}` : ''}` +
+    `${county.metro ? ` · ${county.metro}` : ''}`;
+
+  // A county can have a budget but no rent on the chosen basis.
+  if (rent === null) {
+    const other = state.rentBasis === 'acs' ? 'zori' : 'acs';
+    const hasOther = county[RENT_BASIS[other].key] !== null;
+
+    $('#verdict').className = 'verdict';
+    $('#verdict').innerHTML =
+      `<span class="verdict-swatch" style="background:var(--map-nodata)"></span>` +
+      `<div>No ${basis().short} rent figure is published for ${county.name}.` +
+      (hasOther ? ` Switch the rent basis to ${RENT_BASIS[other].short} to see it.` : '') +
+      `</div>`;
+    $('#county-stats').replaceChildren();
+    $('#ladder').replaceChildren();
+    $('#breakdown').replaceChildren();
+    $('#breakdown-table').innerHTML = '';
+    $('#tax-table').innerHTML = '';
+    $('#local-tax-warning').hidden = true;
+    return;
+  }
+
+  const location = { state: county.state, local, rent, nonHousingMonthly: county.nonHousingMonthly };
+
+  const bands = salaryBands(location);
+  const tax = totalTax(state.offer.baseSalary, { state: county.state, local });
+  const net = tax.net / 12;
+  const needs = bands.monthlyNeeds;
+  const band = classify(net, needs);
+  const surplus = net - needs;
+
+  const verdict = $('#verdict');
+  verdict.className = `verdict band-${band.id}`;
+  verdict.innerHTML =
+    `<span class="verdict-swatch" style="background:var(${BAND_STEP[band.id]})"></span>` +
+    `<div><strong>${band.label}</strong> in ${county.name} on ${money(state.offer.baseSalary)} base. ` +
+    `${band.description}</div>`;
+
+  const rentNote =
+    state.rentBasis === 'acs'
+      ? county.acsMoe
+        ? `Census ACS ±${money(county.acsMoe)}`
+        : 'Census ACS'
+      : county.zoriYoy === null
+        ? 'Zillow ZORI'
+        : `${(county.zoriYoy * 100).toFixed(1)}% YoY`;
 
   const tiles = [
-    { label: 'Easiest metro', value: pct(best.result.baseRatio, 1), note: best.hub.city },
-    { label: 'Toughest metro', value: pct(worst.result.baseRatio, 1), note: worst.hub.city },
+    { label: 'Take-home', value: `${money(net)}/mo`, note: `after ${pct(tax.effectiveRate, 1)} total tax` },
+    { label: 'Rent', value: `${money(rent)}/mo`, note: rentNote },
+    { label: 'Everything else', value: `${money(county.nonHousingMonthly)}/mo`, note: 'food, medical, transport, other' },
     {
-      label: 'Under the 30% line',
-      value: `${under} of ${rows.length}`,
-      note: 'metros where rent stays affordable',
-    },
-    {
-      label: 'Take-home spread',
-      value: `${money(spread)}/mo`,
-      note: 'same salary, different state tax',
+      label: surplus >= 0 ? 'Left over' : 'Short by',
+      value: `${money(Math.abs(surplus))}/mo`,
+      note: surplus >= 0 ? `${pct(needs / net, 0)} of pay goes to necessities` : 'necessities exceed take-home',
     },
   ];
 
-  $('#stats').replaceChildren(
+  $('#county-stats').replaceChildren(
     ...tiles.map((t) => {
       const d = document.createElement('div');
       d.className = 'stat';
@@ -193,7 +413,209 @@ function renderStats() {
       return d;
     }),
   );
+
+  const colors = Object.fromEntries(
+    Object.entries(BAND_STEP).map(([id, token]) => [id, `var(${token})`]),
+  );
+  salaryLadder($('#ladder'), {
+    bands,
+    salary: state.offer.baseSalary,
+    colors,
+    bandLabel: band.label,
+  });
+
+  renderBreakdown(county, rent, needs);
+
+  const warning = $('#local-tax-warning');
+  const unmodelled = UNMODELLED_LOCAL_TAX[county.state];
+  if (unmodelled && !local) {
+    warning.hidden = false;
+    warning.textContent =
+      `Heads up: ${unmodelled.note} Typically ${unmodelled.typical}, and it is NOT included above — ` +
+      `your real take-home here will be lower.`;
+  } else {
+    warning.hidden = true;
+  }
+
+  renderTaxTable(tax, county, local);
 }
+
+/**
+ * The monthly cost of living, split into its parts.
+ *
+ * Rent is one measured figure; the six others come from MIT's county budget.
+ * They are shown together because "rent is $1,800" is only half an answer — the
+ * other $2,200 is what turns a plausible-looking salary into a tight one.
+ */
+function renderBreakdown(county, rent, needs) {
+  const RAMP = ['--seq-2', '--seq-3', '--seq-4', '--seq-5', '--seq-6', '--seq-7'];
+
+  const segments = [{ label: 'Rent', value: rent, color: 'var(--accent)' }];
+
+  if (county.expenses) {
+    CATEGORY_ORDER.forEach((key, i) => {
+      segments.push({
+        label: CATEGORY_LABELS[key] ?? key,
+        value: county.expenses[i],
+        color: `var(${RAMP[i]})`,
+      });
+    });
+  } else {
+    segments.push({
+      label: 'Everything else',
+      value: county.nonHousingMonthly,
+      color: 'var(--seq-4)',
+    });
+  }
+
+  stackedBar($('#breakdown'), segments);
+
+  const rows = segments
+    .map(
+      (s) => `
+      <tr>
+        <td><span class="swatch" style="background:${s.color}"></span>${s.label}</td>
+        <td>${money(s.value)}</td>
+        <td>${pct(s.value / needs, 1)}</td>
+        <td>${money(s.value * 12)}</td>
+      </tr>`,
+    )
+    .join('');
+
+  $('#breakdown-table').innerHTML = `
+    <thead><tr><th>Category</th><th>Per month</th><th>Share</th><th>Per year</th></tr></thead>
+    <tbody>${rows}</tbody>
+    <tfoot><tr>
+      <td><strong>Total to live here</strong></td>
+      <td><strong>${money(needs)}</strong></td>
+      <td><strong>100%</strong></td>
+      <td><strong>${money(needs * 12)}</strong></td>
+    </tr></tfoot>`;
+}
+
+function renderTaxTable(tax, county, local) {
+  const rows = [
+    ['Gross base salary', tax.gross],
+    ['Federal income tax', -tax.federal],
+    ['FICA (Social Security + Medicare)', -tax.fica],
+    [`${STATES[county.state].name} income tax`, -tax.stateIncome],
+    ...tax.statePayrollDetail.map((d) => [d.label, -d.amount]),
+    ...(local ? [[LOCAL[local].name, -tax.local]] : []),
+  ];
+
+  const body = rows
+    .map(
+      ([label, value]) => `
+      <tr>
+        <td>${label}</td>
+        <td>${value < 0 ? '−' : ''}${money(Math.abs(value))}</td>
+        <td>${tax.gross > 0 ? pct(Math.abs(value) / tax.gross, 1) : '—'}</td>
+      </tr>`,
+    )
+    .join('');
+
+  $('#tax-table').innerHTML = `
+    <thead><tr><th>Item</th><th>Per year</th><th>Of gross</th></tr></thead>
+    <tbody>${body}</tbody>
+    <tfoot><tr>
+      <td><strong>Take-home</strong></td>
+      <td><strong>${money(tax.net)}</strong></td>
+      <td><strong>${pct(1 - tax.effectiveRate, 1)}</strong></td>
+    </tr></tfoot>`;
+}
+
+/* ------------------------------------------------------------------ map */
+
+function buildMap() {
+  state.map = countyMap($('#map'), {
+    basemap: state.basemap,
+    onSelect: (fips) => {
+      if (!state.counties.has(fips)) return;
+      state.selectedCounty = fips;
+      renderCountyPanel();
+      paintMap();
+    },
+    onHover: (fips, event) => {
+      if (!fips) return hideTooltip();
+      showCountyTooltip(fips, event);
+    },
+  });
+
+  rampLegendFor($('#map-legend'), NEEDS_SHARE_CLASSES);
+}
+
+let tooltipEl;
+function tooltipNode() {
+  if (!tooltipEl) {
+    tooltipEl = document.getElementById('tooltip');
+    if (!tooltipEl) {
+      tooltipEl = document.createElement('div');
+      tooltipEl.id = 'tooltip';
+      tooltipEl.setAttribute('role', 'status');
+      document.body.appendChild(tooltipEl);
+    }
+  }
+  return tooltipEl;
+}
+
+const hideTooltip = () => tooltipNode().classList.remove('on');
+
+function showCountyTooltip(fips, event) {
+  const county = state.counties.get(fips);
+  const tip = tooltipNode();
+  const rent = county ? rentOf(county) : null;
+
+  if (!county || rent === null) {
+    tip.innerHTML =
+      `<div class="t-title">${county?.label ?? 'This county'}</div>` +
+      `<div class="t-row">No ${basis().short} rent figure published</div>`;
+  } else {
+    const local = localCodeFor(county);
+    const net = totalTax(state.offer.baseSalary, { state: county.state, local }).net / 12;
+    const needs = monthlyNeeds(rent, county.nonHousingMonthly);
+    const band = classify(net, needs);
+
+    tip.innerHTML =
+      `<div class="t-title">${county.label}</div>` +
+      `<div class="t-row"><strong>${band.label}</strong> — necessities take ${pct(needs / net, 0)} of pay</div>` +
+      `<div class="t-row">Rent ${money(rent)}/mo</div>` +
+      `<div class="t-row">Everything else ${money(county.nonHousingMonthly)}/mo</div>` +
+      `<div class="t-row">Take-home ${money(net)}/mo</div>`;
+  }
+
+  tip.classList.add('on');
+  const pad = 14;
+  const rect = tip.getBoundingClientRect();
+  let x = event.clientX + pad;
+  let y = event.clientY + pad;
+  if (x + rect.width > window.innerWidth - 8) x = event.clientX - rect.width - pad;
+  if (y + rect.height > window.innerHeight - 8) y = event.clientY - rect.height - pad;
+  tip.style.left = `${Math.max(8, x)}px`;
+  tip.style.top = `${Math.max(8, y)}px`;
+}
+
+function paintMap() {
+  const { steps, bandCounts, withRent } = paintDataForCounties();
+  state.map.paint(steps, state.selectedCounty);
+
+  const comfortable = bandCounts.comfortable ?? 0;
+  const strained = (bandCounts.survival ?? 0) + (bandCounts['below-survival'] ?? 0);
+
+  $('#map-intro').textContent =
+    `Every US county, shaded by what share of take-home rent and necessities consume. ` +
+    `Click any county to select it. Rent here is ${basis().label}` +
+    (state.rentBasis === 'acs'
+      ? ', which covers essentially the whole country.'
+      : ', so counties Zillow does not index are left unshaded.');
+
+  $('#map-caption').textContent =
+    `On ${money(state.offer.baseSalary)} base, necessities stay under half of take-home in ` +
+    `${comfortable.toLocaleString()} of ${withRent.toLocaleString()} counties measured on this basis ` +
+    `(${pct(comfortable / withRent, 0)}), and take 70% or more in ${strained.toLocaleString()}. ` +
+    `Darker counties are the expensive ones.`;
+}
+
+/* ------------------------------------------------------------ hub charts */
 
 function renderBars() {
   const rows = locationsFor(state.offer)
@@ -221,9 +643,7 @@ function renderBars() {
 
 function renderHeatmap() {
   const profiles = state.profiles.profiles;
-  const hubs = state.rents.hubs;
 
-  // Order rows by the current offer so the grid stays comparable with the bars.
   const ordered = locationsFor(state.offer)
     .sort((a, b) => (a.result.baseRatio ?? 1) - (b.result.baseRatio ?? 1))
     .map((r) => r.hub);
@@ -245,7 +665,7 @@ function renderHeatmap() {
 
   heatmap($('#heatmap'), {
     rowLabels: ordered.map((h) => h.city),
-    colLabels: profiles.map((p) => ({ title: p.company, subtitle: p.title.split(' ')[0] })),
+    colLabels: profiles.map((p) => ({ title: p.company, subtitle: p.short })),
     cells,
   });
 
@@ -262,15 +682,14 @@ function renderMultiples() {
     res: affordability(p, { state: hub.state, local: hub.local, rent: hub.rent }),
   }));
 
-  // One shared vertical scale across all four panels, so the shapes are
-  // genuinely comparable rather than each rescaled to its own range.
+  // One shared vertical scale across all panels, so the shapes are genuinely
+  // comparable rather than each rescaled to its own range.
   const allRatios = results.flatMap(({ res }) => res.years.map((y) => y.ratio)).filter((r) => r !== null);
   const span = Math.max(...allRatios) - Math.min(...allRatios);
   const pad = span === 0 ? 0.01 : span * 0.18;
   const domain = [Math.min(...allRatios) - pad, Math.max(...allRatios) + pad];
 
   for (const { profile: p, res } of results) {
-
     const panel = document.createElement('div');
     panel.className = 'multiple';
 
@@ -306,10 +725,10 @@ function renderMultiples() {
     COST_BURDENED_THRESHOLD >= domain[0] && COST_BURDENED_THRESHOLD <= domain[1];
 
   $('#multiples-caption').textContent =
-    `${hub.city} · rent ${money(hub.rent)}/mo · all four panels share one vertical scale` +
+    `${hub.city} · rent ${money(hub.rent)}/mo · all panels share one vertical scale` +
     (thresholdVisible
       ? ' · dashed line marks the 30% threshold'
-      : ' · every offer here stays well under the 30% threshold, which sits above this range');
+      : ' · every offer here stays under the 30% threshold, which sits outside this range');
 }
 
 function renderTable() {
@@ -342,34 +761,17 @@ function renderTable() {
 }
 
 function renderAll() {
-  renderStats();
+  renderCountyPanel();
+  paintMap();
   renderBars();
   renderHeatmap();
   renderMultiples();
   renderTable();
 }
 
-/* ----------------------------------------------------------------- theme */
-
-function toggleTheme() {
-  const root = document.documentElement;
-  const current =
-    root.dataset.theme ||
-    (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-  const next = current === 'dark' ? 'light' : 'dark';
-
-  root.dataset.theme = next;
-  $('#theme-toggle').textContent = next === 'dark' ? 'Light' : 'Dark';
-
-  // The heatmap picks its label ink from the resolved surface, so it must redraw.
-  renderHeatmap();
-}
-
 load().catch((err) => {
-  document.querySelector('.wrap').insertAdjacentHTML(
-    'afterbegin',
-    `<section class="panel"><h2>Could not load data</h2>
-     <p class="sub">${err.message}. If you opened this file directly, serve it over HTTP instead —
-     ES modules and fetch do not work from <code>file://</code>. Run <code>npm run serve</code>.</p></section>`,
-  );
+  $('#loading').innerHTML =
+    `<strong>Could not load data.</strong> ${err.message}. If you opened this file directly, ` +
+    `serve it over HTTP instead — ES modules and fetch do not work from <code>file://</code>. ` +
+    `Run <code>npm run serve</code>.`;
 });

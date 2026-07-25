@@ -1,11 +1,16 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
-const rents = JSON.parse(readFileSync(new URL('../data/rents.json', import.meta.url), 'utf8'));
-const profiles = JSON.parse(readFileSync(new URL('../data/profiles.json', import.meta.url), 'utf8'));
+const read = (name) =>
+  JSON.parse(readFileSync(new URL(`../data/${name}`, import.meta.url), 'utf8'));
+
+const rents = read('rents.json');
+const profiles = read('profiles.json');
+const basemap = read('us-basemap.json');
 
 const HUB_COUNT = rents.hubs.length;
 const PROFILE_COUNT = profiles.profiles.length;
+const COUNTY_COUNT = basemap.counties.length;
 
 /**
  * Fails the test on any console error or uncaught exception.
@@ -23,21 +28,27 @@ function watchForErrors(page) {
   return errors;
 }
 
+/** The app is hidden behind a loading panel until every dataset has arrived. */
+async function ready(page) {
+  await page.goto('/');
+  await expect(page.locator('#map .map-county').first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('.stat')).toHaveCount(4);
+}
+
 test.describe('affordability index', () => {
   test('loads and renders every view without console errors', async ({ page }) => {
     const errors = watchForErrors(page);
+    await ready(page);
 
-    await page.goto('/');
-    await expect(page.locator('.stat')).toHaveCount(4);
+    // The loading panel must actually go away — a CSS `display` rule can beat
+    // the `hidden` attribute and leave it stranded over the content.
+    await expect(page.locator('#loading')).toBeHidden();
 
-    // Freshness badge must show the real observation month, not a placeholder.
     const month = new Date(`${rents.asOf}T00:00:00Z`).toLocaleDateString('en-US', {
       month: 'long', year: 'numeric', timeZone: 'UTC',
     });
     await expect(page.locator('#freshness')).toContainText(month);
-    await expect(page.locator('#freshness')).toContainText(String(HUB_COUNT));
 
-    // One bar per metro, one heatmap cell per metro x offer, one panel per offer.
     await expect(page.locator('#bars .bar-row')).toHaveCount(HUB_COUNT);
     await expect(page.locator('#heatmap .cell-value')).toHaveCount(HUB_COUNT * PROFILE_COUNT);
     await expect(page.locator('.multiple')).toHaveCount(PROFILE_COUNT);
@@ -46,15 +57,109 @@ test.describe('affordability index', () => {
     expect(errors).toEqual([]);
   });
 
+  test('the map draws every county in the country', async ({ page }) => {
+    await ready(page);
+
+    // Every county is drawn, including the ones with no data — a map missing a
+    // third of the country would still look plausible.
+    await expect(page.locator('#map .map-county')).toHaveCount(COUNTY_COUNT);
+    await expect(page.locator('#map .map-state')).toHaveCount(51);
+
+    // Most counties must actually be shaded, not left on the no-data fill.
+    const shaded = await page.locator('#map .map-county').evaluateAll((nodes) =>
+      nodes.filter((n) => !n.getAttribute('fill').includes('nodata')).length,
+    );
+    expect(shaded, 'almost nothing on the map got a value').toBeGreaterThan(3000);
+  });
+
+  test('clicking a county selects it and updates the panel', async ({ page }) => {
+    await ready(page);
+    const before = await page.locator('#county-picker').inputValue();
+
+    // Los Angeles County — large enough to hit reliably, and always has data.
+    await page.locator('#map .map-county[data-fips="06037"]').click({ force: true });
+
+    await expect(page.locator('#county-picker')).toHaveValue(/Los Angeles/);
+    expect(await page.locator('#county-picker').inputValue()).not.toBe(before);
+    await expect(page.locator('#verdict')).toContainText('Los Angeles');
+    // The selection outline follows the click.
+    await expect(page.locator('#map .map-selected')).toHaveAttribute('d', /^M/);
+  });
+
+  test('a costly county demands a higher salary than a cheap one', async ({ page }) => {
+    await ready(page);
+
+    const comfortable = async (label) => {
+      await page.locator('#county-picker').fill(label);
+      await page.locator('#county-picker').dispatchEvent('change');
+      await expect(page.locator('#verdict')).toContainText(label.split(' County')[0]);
+      const ticks = await page.locator('#ladder .value-label').allTextContents();
+      return Number(ticks.at(-1).replace(/[$,]/g, ''));
+    };
+
+    const sf = await comfortable('San Francisco County, CA');
+    const wichita = await comfortable('Sedgwick County, KS');
+
+    expect(sf, 'San Francisco should demand more than Wichita').toBeGreaterThan(wichita);
+  });
+
+  test('switching the rent basis changes the numbers and the coverage', async ({ page }) => {
+    await ready(page);
+
+    const rentTile = page.locator('.stat').filter({ hasText: 'Rent' }).first();
+    const acsRent = await rentTile.locator('.value').textContent();
+    await expect(rentTile).toContainText('Census ACS');
+
+    await page.locator('#rent-basis').selectOption('zori');
+
+    await expect(rentTile).not.toContainText('Census ACS');
+    expect(await rentTile.locator('.value').textContent()).not.toBe(acsRent);
+
+    // Zillow covers far fewer counties, so more of the map falls back to no-data.
+    const nodata = await page.locator('#map .map-county').evaluateAll((nodes) =>
+      nodes.filter((n) => n.getAttribute('fill').includes('nodata')).length,
+    );
+    expect(nodata, 'ZORI basis should leave many counties unshaded').toBeGreaterThan(1000);
+  });
+
+  test('the cost breakdown adds up to the stated total', async ({ page }) => {
+    await ready(page);
+
+    const rows = page.locator('#breakdown-table tbody tr');
+    await expect(rows).toHaveCount(7); // rent + six MIT categories
+
+    const values = await rows.locator('td:nth-child(2)').allTextContents();
+    const sum = values.reduce((n, v) => n + Number(v.replace(/[$,]/g, '')), 0);
+
+    const totalText = await page.locator('#breakdown-table tfoot td').nth(1).textContent();
+    const total = Number(totalText.replace(/[$,]/g, ''));
+
+    // Each MIT category is rounded independently, so allow a few dollars of drift.
+    expect(Math.abs(sum - total), `components ${sum} vs total ${total}`).toBeLessThanOrEqual(6);
+
+    // Groceries and transport are the figures a reader is most likely to sanity-check.
+    await expect(page.locator('#breakdown-table')).toContainText('Groceries');
+    await expect(page.locator('#breakdown-table')).toContainText('Transport');
+  });
+
+  test('the salary ladder orders its thresholds and marks the salary', async ({ page }) => {
+    await ready(page);
+
+    const ticks = await page.locator('#ladder .value-label').allTextContents();
+    const nums = ticks.map((t) => Number(t.replace(/[$,]/g, '')));
+
+    expect(nums).toHaveLength(3);
+    expect(nums, 'survival < getting by < comfortable').toEqual([...nums].sort((a, b) => a - b));
+    await expect(page.locator('#ladder .ladder-marker')).toHaveCount(1);
+  });
+
   test('bars are ranked ascending and the 30% threshold is drawn', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.locator('#bars .bar-row').first()).toBeVisible();
+    await ready(page);
 
     const values = await page.locator('#bars .value-label').allTextContents();
     const nums = values.map((v) => parseFloat(v));
 
     expect(nums.length).toBe(HUB_COUNT);
-    // Cheapest rent burden first.
     expect([...nums]).toEqual([...nums].sort((a, b) => a - b));
 
     await expect(page.locator('#bars .threshold-line')).toHaveCount(1);
@@ -62,7 +167,7 @@ test.describe('affordability index', () => {
   });
 
   test('no cell is left unlabelled (the relief rule for low-contrast ramp steps)', async ({ page }) => {
-    await page.goto('/');
+    await ready(page);
     const labels = await page.locator('#heatmap .cell-value').allTextContents();
 
     expect(labels).toHaveLength(HUB_COUNT * PROFILE_COUNT);
@@ -70,13 +175,11 @@ test.describe('affordability index', () => {
   });
 
   test('switching preset recomputes the numbers', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.locator('#bars .bar-row').first()).toBeVisible();
+    await ready(page);
 
     const before = await page.locator('#bars .value-label').first().textContent();
     const baseBefore = await page.locator('#base').inputValue();
 
-    // Startup profile: different base, and equity discounted to zero.
     await page.getByRole('button', { name: /Startup/ }).click();
 
     await expect(page.locator('#base')).not.toHaveValue(baseBefore);
@@ -85,24 +188,37 @@ test.describe('affordability index', () => {
   });
 
   test('editing salary recomputes and marks the offer custom', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.locator('#bars .bar-row').first()).toBeVisible();
+    await ready(page);
 
     const before = parseFloat(await page.locator('#bars .value-label').first().textContent());
 
-    // Halving pay must make rent a strictly larger share of it.
     await page.locator('#base').fill('90000');
     await expect(async () => {
       const after = parseFloat(await page.locator('#bars .value-label').first().textContent());
       expect(after).toBeGreaterThan(before);
     }).toPass();
 
-    // No preset should still read as selected once the numbers are edited.
     await expect(page.locator('.presets button[aria-pressed="true"]')).toHaveCount(0);
   });
 
+  test('a lower salary pushes counties into worse bands', async ({ page }) => {
+    await ready(page);
+
+    const darkCount = () =>
+      page.locator('#map .map-county').evaluateAll((nodes) =>
+        // seq-5 and above are the strained classes.
+        nodes.filter((n) => /seq-(5|6|7)/.test(n.getAttribute('fill'))).length,
+      );
+
+    const richly = await darkCount();
+    await page.locator('#base').fill('45000');
+    await expect(async () => {
+      expect(await darkCount()).toBeGreaterThan(richly);
+    }).toPass();
+  });
+
   test('a zero-income-tax metro nets more than California at equal pay', async ({ page }) => {
-    await page.goto('/');
+    await ready(page);
     await expect(page.locator('#table tbody tr')).toHaveCount(HUB_COUNT);
 
     const netOf = async (city) => {
@@ -111,31 +227,45 @@ test.describe('affordability index', () => {
       return Number(text.replace(/[$,]/g, ''));
     };
 
-    // Same gross salary; the gap is state tax alone.
     expect(await netOf('Austin')).toBeGreaterThan(await netOf('San Francisco'));
     expect(await netOf('Austin')).toBeGreaterThan(await netOf('New York'));
   });
 
-  test('dark mode redraws without errors', async ({ page }) => {
-    const errors = watchForErrors(page);
+  test('counties with unmodelled local income tax say so', async ({ page }) => {
+    await ready(page);
 
-    await page.goto('/');
-    await expect(page.locator('#heatmap .cell-value')).toHaveCount(HUB_COUNT * PROFILE_COUNT);
+    // Franklin County, Ohio (Columbus) — Ohio municipalities levy an income tax
+    // that this engine does not compute, and hiding that would overstate pay.
+    await page.locator('#county-picker').fill('Franklin County, OH');
+    await page.locator('#county-picker').dispatchEvent('change');
+
+    await expect(page.locator('#local-tax-warning')).toBeVisible();
+    await expect(page.locator('#local-tax-warning')).toContainText(/not included/i);
+
+    // King County, WA has no local income tax, so no warning.
+    await page.locator('#county-picker').fill('King County, WA');
+    await page.locator('#county-picker').dispatchEvent('change');
+    await expect(page.locator('#local-tax-warning')).toBeHidden();
+  });
+
+  test('dark mode redraws without errors and survives navigation', async ({ page }) => {
+    const errors = watchForErrors(page);
+    await ready(page);
 
     await page.locator('#theme-toggle').click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
-
-    // The heatmap re-renders on toggle because its label ink depends on the mode.
     await expect(page.locator('#heatmap .cell-value')).toHaveCount(HUB_COUNT * PROFILE_COUNT);
+
+    // The choice is stored, so following a link must not silently reset it.
+    await page.goto('/method.html');
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+
     expect(errors).toEqual([]);
   });
 
   test('vesting panels share one scale and actually show shape', async ({ page }) => {
-    await page.goto('/');
+    await ready(page);
     await expect(page.locator('.multiple')).toHaveCount(PROFILE_COUNT);
-
-    // Every panel must plot on the same vertical scale, or comparing the shapes
-    // across panels is meaningless.
     await expect(page.locator('#multiples-caption')).toContainText('share one vertical scale');
 
     const dotYs = async (company) => {
@@ -145,9 +275,8 @@ test.describe('affordability index', () => {
         .evaluateAll((dots) => dots.map((d) => Number(d.getAttribute('cy'))));
     };
 
-    // Google's grant vests 33/33/22/12, so pay falls over time and the curve
-    // must visibly climb. A flat line here means the y-domain collapsed and the
-    // panel is showing nothing.
+    // Google's grant vests 33/33/22/12, so pay falls over time and the curve must
+    // visibly climb. A flat line here means the y-domain collapsed.
     const google = await dotYs('Google');
     expect(google.length).toBe(4);
     expect(
@@ -155,50 +284,59 @@ test.describe('affordability index', () => {
       'front-loaded vesting curve is flat — y-domain collapsed',
     ).toBeGreaterThan(15);
 
-    // Meta and the startup are both perfectly flat but at very different levels.
-    // If each panel self-scaled, both would render mid-panel at the same height;
-    // a shared domain forces them apart. This is the real shared-scale check.
-    const [meta, startup] = [await dotYs('Meta'), await dotYs('Startup')];
-    expect(Math.abs(meta[0] - startup[0]), 'panels are not on a shared scale').toBeGreaterThan(20);
+    // Netflix and Microsoft are both perfectly flat but sit at opposite ends of
+    // the range — 17.3% against 23.3% of take-home in Seattle. If each panel
+    // self-scaled, two flat lines would both render mid-panel at the same height;
+    // a shared domain forces them apart, and cheaper must sit lower on the plot.
+    const [netflix, microsoft] = [await dotYs('Netflix'), await dotYs('Microsoft')];
+    expect(
+      netflix[0] - microsoft[0],
+      'panels are not on a shared scale — two very different values drew at the same height',
+    ).toBeGreaterThan(20);
 
-    // A shared domain inside each SVG is not enough: the plot areas must also
-    // line up on the page. Descriptions differ in length, and without a common
-    // baseline a longer one pushes its chart down so a panel can look lower than
-    // a neighbour whose value is actually higher.
+    // A shared domain inside each SVG is not enough: the plot areas must also line
+    // up on the page, or a longer description pushes its chart down and a panel
+    // looks lower than a neighbour whose value is actually higher.
+    //
+    // The panels wrap across grid rows, so alignment is only meaningful WITHIN a
+    // row — comparing a first-row panel against a second-row one just measures
+    // the row height.
     const tops = await page.locator('.multiple .plot svg').evaluateAll((svgs) =>
       svgs.map((s) => Math.round(s.getBoundingClientRect().top)),
     );
     expect(tops).toHaveLength(PROFILE_COUNT);
-    expect(
-      Math.max(...tops) - Math.min(...tops),
-      'plot areas are not vertically aligned across panels',
-    ).toBeLessThanOrEqual(2);
 
-    // And on the page, a higher ratio must sit visually higher.
-    const pageY = async (company) => {
-      const panel = page.locator('.multiple').filter({ hasText: company }).first();
-      return panel.locator('.spark-dot').first().evaluate((d) => d.getBoundingClientRect().top);
-    };
-    // Amazon's year-1 share exceeds Meta's, so its mark must render above Meta's.
-    expect(await pageY('Amazon')).toBeLessThan(await pageY('Meta'));
+    const rows = new Map();
+    for (const top of tops) {
+      const key = [...rows.keys()].find((k) => Math.abs(k - top) < 60) ?? top;
+      rows.set(key, [...(rows.get(key) ?? []), top]);
+    }
+    expect(rows.size, 'expected the panels to wrap into at least one row').toBeGreaterThan(0);
+
+    for (const [, row] of rows) {
+      expect(
+        Math.max(...row) - Math.min(...row),
+        'plot areas are not vertically aligned within a row',
+      ).toBeLessThanOrEqual(2);
+    }
   });
 
-  test('tooltips appear on hover', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.locator('#bars .bar-row').first()).toBeVisible();
+  test('tooltips appear on hover, on both the bars and the map', async ({ page }) => {
+    await ready(page);
 
     await page.locator('#bars .bar-row').first().hover();
     const tip = page.locator('#tooltip');
     await expect(tip).toHaveClass(/on/);
     await expect(tip).toContainText('Take-home');
+
+    await page.locator('#map .map-county[data-fips="06037"]').hover({ force: true });
+    await expect(tip).toContainText('Los Angeles');
   });
 
   test('the page never scrolls horizontally', async ({ page }) => {
-    // Wide content (bars, heatmap) must scroll inside its own container.
     for (const width of [1280, 768, 390]) {
       await page.setViewportSize({ width, height: 900 });
-      await page.goto('/');
-      await expect(page.locator('.stat')).toHaveCount(4);
+      await ready(page);
 
       const overflow = await page.evaluate(
         () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -208,14 +346,26 @@ test.describe('affordability index', () => {
   });
 
   test('charts carry accessible names and a table alternative', async ({ page }) => {
-    await page.goto('/');
+    await ready(page);
 
-    // Identity is never colour-alone: a table view backs every chart.
     await expect(page.locator('#bars svg')).toHaveAttribute('aria-label', /rent/i);
     await expect(page.locator('#heatmap svg')).toHaveAttribute('aria-label', /rent/i);
-    await expect(page.locator('details.table-view')).toBeVisible();
+    await expect(page.locator('#map svg')).toHaveAttribute('aria-label', /county/i);
+    await expect(page.locator('details.table-view').first()).toBeVisible();
 
-    // Marks are keyboard reachable.
     await expect(page.locator('#bars .bar-row').first()).toHaveAttribute('tabindex', '0');
+  });
+
+  test('the method page loads and covers the limitations', async ({ page }) => {
+    const errors = watchForErrors(page);
+    await page.goto('/method.html');
+
+    await expect(page.locator('h1')).toContainText('How every number');
+    // The limitations section is the part that must never quietly disappear.
+    await expect(page.locator('#limits')).toContainText('Local income tax is modelled for two cities only');
+    await expect(page.locator('#comp')).toContainText('not location-adjusted');
+    await expect(page.locator('a[href="index.html"]').first()).toBeVisible();
+
+    expect(errors).toEqual([]);
   });
 });

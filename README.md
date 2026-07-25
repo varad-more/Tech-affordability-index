@@ -1,51 +1,75 @@
 # Tech Affordability Index
 
-### → **[Live site](https://varadmore.me/Tech-affordability-index/)**
+### → **[Live site](https://varadmore.me/Tech-affordability-index/)** · **[Method](https://varadmore.me/Tech-affordability-index/method.html)**
 
-**What share of your take-home pay does rent actually take, city by city?**
+**What salary does a place actually need — and does your offer clear it?**
 
-Tech hubs shift, and engineers weighing a relocation get served cost-of-living
-calculators that are months or years stale and quietly compare *gross* salaries —
-as if a $185k offer meant the same thing in Austin and Manhattan.
+Cost-of-living calculators go stale and quietly compare *gross* salaries, as if a
+$156k offer meant the same thing in Austin and Manhattan. This works out what a
+county costs to live in — rent **plus** everything else — and the salary that
+covers it, measured against **take-home pay** after federal, state, city and
+payroll tax.
 
-This computes rent against **take-home pay** — after federal, FICA, state, city
-and payroll tax — across 21 metros, on rent data that refreshes every month.
+Every US county. Current tax law. Sources you can check.
 
 ![Rent burden by metro](docs/preview-bars.svg)
 
 ---
 
-## Why the numbers here are different
+## The question it answers
 
-**Rent is live.** A GitHub Action pulls the Zillow Observed Rent Index on the 20th
-of each month and commits the result. The git history of `data/rents.json` *is* the
-freshness record — every refresh is a dated, diffable commit.
+Most tools answer a *relative* question: given a salary, where does it stretch
+furthest? That produces a ranking, but a ranking never says whether anything on
+it is affordable. Two places with an identical 28% rent burden are not equally
+livable if one has materially higher transport and medical costs.
 
-**Tax is current and complete.** Federal brackets, the standard deduction and the
-Social Security wage base for the current tax year; each state's own brackets and
-deduction; state payroll levies (CA SDI, WA PFML, WA Cares); and city income tax
-in New York City and Philadelphia. Every constant in `src/tax-data.js` carries its
-source URL.
+So the model here is **absolute**:
 
-**Equity is discounted, not counted at face value.** Unvested stock is not cash.
-Public RSUs take a haircut for price risk; private company shares default to a 0%
-haircut, because you cannot pay rent with illiquid paper.
+```
+needs = rent + everything else       (monthly, after tax)
+```
 
-**The headline uses base salary only.** Total comp flatters the number exactly
-where a relocation decision can least afford it: a sign-on bonus is one lump in
-January, and RSUs vest quarterly at a price nobody can predict. Equity and bonuses
-get their own views instead.
+and three salary thresholds fall out of it, each anchored to a published
+budgeting standard rather than a number chosen because it looked reasonable:
+
+| Threshold | Rule | Standard |
+|---|---|---|
+| **Survival** | needs = 100% of take-home | MIT living wage — a subsistence budget with no savings |
+| **Getting by** | needs = 70% of take-home | the 70/20/10 budget |
+| **Comfortable** | needs = 50% of take-home | the 50/30/20 rule |
+
+Those salaries are found by **inverting the tax engine** numerically, so they
+stay correct for every state, bracket, payroll levy and city tax automatically —
+including the kinks at the Social Security wage cap and the Additional Medicare
+threshold, which have no closed form.
+
+## Data
+
+| What | Source | Coverage | Refresh |
+|---|---|---|---|
+| Rent, current | Zillow ZORI | ~1,360 counties + 21 metros | monthly, by CI |
+| Rent, complete | Census ACS B25064 | 3,123 of 3,142 counties | annual |
+| Everything else | MIT Living Wage Calculator | 3,133 counties | annual |
+| Tax | Tax Foundation / IRS / SSA | all 50 states + DC | yearly |
+| Compensation | Levels.fyi | 7 entry-level packages | dated snapshot |
+| Boundaries + names | us-atlas + Census gazetteer | 3,142 counties | static |
+
+**The two rent measures are never mixed into one number.** A single national
+ZORI/ACS multiplier was tested against the 1,351 counties carrying both and
+rejected — correlation 0.675, median error 11%, 90th-percentile error 27%, with
+Pitkin County (Aspen) off by a factor of nine. You switch between them; the site
+never converts one into the other.
 
 ## What it shows
 
 | View | Answers |
 |---|---|
-| **Ranked bars** | Where does rent eat least of my monthly pay? Marked against HUD's 30% cost-burdened line. |
-| **Heatmap** | How do all 21 metros compare across every reference offer at once? |
+| **Salary ladder** | What does survival cost here, and what does comfortable cost? |
+| **Cost breakdown** | Where does the money actually go — groceries, transport, healthcare? |
+| **County map** | Where in the country does this salary go furthest? |
+| **Ranked bars** | Across the 21 tech hubs, where does rent eat least of monthly pay? |
+| **Heatmap** | How do all 21 hubs compare across every reference offer at once? |
 | **Small multiples** | How does it change over four years as equity vests? |
-
-The vesting view is where the offers separate: a front-loaded grant pays rent now,
-a back-loaded one has a year-3 cliff that a single total-comp number hides entirely.
 
 ## Running it
 
@@ -54,79 +78,94 @@ step and no database. Playwright is a dev dependency, used only for tests.
 
 ```bash
 npm run serve        # http://localhost:4173
-npm test             # unit: tax engine, ingestion, and the claims the page makes
+npm test             # tax engine, bands, projection, ingest, page claims
 npm run test:e2e     # browser: asserts the charts actually drew
 npm run test:all     # both
-npm run fetch-rents  # refresh data/rents.json from Zillow
-npm run previews     # regenerate the README images from the live page
+
+npm run refresh      # all three rent sources
+npm run fetch-county-living-wage   # cost of living, MIT (resumable)
+npm run build-basemap              # boundaries + gazetteer -> projected SVG paths
 ```
 
 Deploying: enable GitHub Pages with **GitHub Actions** as the source. `ci.yml`
 runs unit tests, then browser tests, then publishes on every push to `main`.
 
-### Why there are browser tests
+## Things worth knowing about the code
 
-The page renders entirely from client-side ES modules. A broken import or a
-runtime error still returns **HTTP 200** with an empty panel — asset checks and
-unit tests both pass while the site shows nothing. The Playwright suite asserts
-that the charts actually drew: one bar per metro in ascending order, every
-heatmap cell labelled, tooltips, dark mode, no horizontal overflow, and no
-console errors.
+**The map projection is hand-rolled and verified.** The site loads no CDN, so
+Albers USA is implemented from scratch in `src/projection.js`. To be sure that
+"from scratch" did not mean "subtly wrong", it was checked against `d3-geo`
+across 27 named locations and 4,982 grid points — including the antimeridian,
+where the Aleutians cross from +179° to −179°. Agreement was exact to
+floating-point precision, and the fixtures are committed so the tests keep
+pinning it.
 
-It also guards things assertions alone kept missing. Two defects in the vesting
-panels were caught only by looking at a screenshot: each panel had been scaling
-to its own y-domain (four incomparable scales presented side by side), and the
-plot areas were not aligned on the page, so a longer description pushed one
-chart down and made a higher value appear lower. Both are now regression-tested.
+**Every ingest fails loudly.** If a source is unreachable or its format changes,
+the script exits non-zero and the last good data stays committed — stale numbers
+still labelled with their real date. Nothing substitutes placeholders, because a
+pipeline that silently falls back to hardcoded values looks identical to a
+working one. That is not hypothetical: it is exactly what this project did
+before the rewrite, for its entire existence.
 
-The unit suite additionally pins **the factual claims the page makes** about the
-reference offers. If the profile data changes so that, say, Google no longer
-decays past Amazon by year four, the tests fail and flag the prose as stale —
-a claim the numbers no longer support is a correctness bug, not a wording nit.
+**The tests pin the prose, not just the code.** The unit suite asserts the
+factual claims the pages make about the reference offers — that Google's
+front-loaded grant decays, that Amazon's back-loaded one climbs past it, that the
+evenly-vesting offers stay flat. If the data changes so a claim stops holding,
+the tests fail and flag the wording as stale. A sentence the numbers no longer
+support is a correctness bug, not a wording nit.
+
+**There are browser tests because HTTP 200 proves nothing.** The page renders
+entirely from client-side ES modules; a broken import returns 200 with an empty
+panel while asset checks and unit tests both pass. The Playwright suite asserts
+the charts actually drew — every county painted, bars in ascending order, the
+breakdown summing to its stated total, tooltips, dark mode surviving navigation,
+and no horizontal overflow at three widths.
 
 ## Layout
 
 ```
-index.html            page shell
-assets/               rendering — charts.js is hand-rolled SVG, zero deps
+index.html            the tool
+method.html           full methodology, sources and limitations
+assets/               rendering — charts.js and map.js are hand-rolled SVG, zero deps
 src/tax.js            tax engine (holds no constants)
 src/tax-data.js       every bracket and rate, each with its source
-src/affordability.js  the ratio math
-src/hubs.js           curated metro -> tax jurisdiction mapping
-scripts/fetch-rents.mjs   ZORI ingest
-data/rents.json       committed monthly by CI
-test/                 node --test  (tax + ingestion)
-e2e/                  playwright   (the rendered page)
+src/bands.js          survival / getting by / comfortable, by inverting the tax engine
+src/projection.js     Albers USA, pinned to d3-geo by fixture
+scripts/              ingests — each fails loudly, none falls back
+data/                 committed, dated, diffable
+test/                 node --test
+e2e/                  playwright
 ```
 
 Rolling to a new tax year means editing `src/tax-data.js` and nothing else.
 
-## Method and caveats
+## Known limitations
 
-- **Rent** is ZORI: smoothed asking rents, metro level, **all home types**. Zillow
-  publishes no bedroom-level metro series, so this is not a one-bedroom median and
-  is not labelled as one.
-- **Metro, not neighbourhood.** "San Francisco" spans the whole MSA and so reads
-  lower than a downtown listing.
-- **Assumes** a single filer taking the standard deduction — no dependents, no
-  401(k) deferral, no itemising. Your real number will differ.
-- The **Washington, DC** metro spans three tax jurisdictions and is modelled as
-  Northern Virginia, where most of the region's tech employment sits.
-- Compensation profiles are **illustrative reference offers**, not a live feed.
-  They are starting points you overwrite with your own numbers.
+The [method page](https://varadmore.me/Tech-affordability-index/method.html)
+carries the full list. The ones that bite hardest:
 
-**The ingest fails loudly.** If Zillow is unreachable or the feed is malformed, the
-script exits non-zero and the last good data stays committed — stale numbers still
-labelled with their real date. It never substitutes placeholders, which is how a
-broken pipeline stays invisible.
+- **Local income tax is modelled for two cities only** — New York City and
+  Philadelphia, the two whose rates could be verified against the taxing
+  authority. About a third of counties with data sit in states levying some local
+  income tax; those carry an on-screen warning and their take-home is overstated.
+- **Compensation is not location-adjusted.** Real packages run 15–25% lower in a
+  tier-3 metro than in the Bay Area, but no authoritative per-metro table is
+  published and DOL's filed-wage data is bot-blocked. Edit the salary field.
+- **Single filer, standard deduction, county-level geography.**
+- **On the Zillow basis, utilities are missing** — ZORI excludes them and MIT
+  puts them in the housing row this project discards. The Census basis includes
+  them.
 
 ## Sources
 
 - [Zillow Research — ZORI](https://www.zillow.com/research/data/)
+- [US Census Bureau — American Community Survey](https://www.census.gov/programs-surveys/acs)
+- [MIT Living Wage Calculator](https://livingwage.mit.edu/)
 - [Tax Foundation — 2026 federal brackets](https://taxfoundation.org/data/all/federal/2026-tax-brackets/)
 - [Tax Foundation — 2026 state brackets](https://taxfoundation.org/data/all/state/state-income-tax-rates-2026/)
 - [SSA — contribution and benefit base](https://www.ssa.gov/oact/cola/cbb.html)
-- [City of Philadelphia — wage tax](https://www.phila.gov/services/payments-assistance-taxes/taxes/income-taxes/earnings-tax-employees/)
+- [Levels.fyi](https://www.levels.fyi/)
+- [us-atlas](https://github.com/topojson/us-atlas)
 
 ## Licence
 

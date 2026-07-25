@@ -3,32 +3,52 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Tech Affordability Index — what rent actually costs you, by metro</title>
-  <meta name="description" content="How much of a tech paycheck rent really takes, by metro, on rent data refreshed monthly from Zillow and current-year tax math.">
+  <title>Tech Affordability Index — what salary a US county actually needs</title>
+  <meta name="description" content="What salary you need to survive and to live comfortably in any US county, computed against take-home pay from current rent data and current-year tax law.">
   <link rel="stylesheet" href="assets/styles.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>🏙️</text></svg>">
 </head>
 <body>
+
+<nav class="topnav">
+  <div class="topnav-inner">
+    <a class="brand" href="index.html">Tech&nbsp;Affordability&nbsp;Index</a>
+    <div class="topnav-links">
+      <a href="index.html" aria-current="page">Explore</a>
+      <a href="method.html">Method</a>
+      <a href="https://github.com/varad-more/Tech-affordability-index">Source</a>
+      <button id="theme-toggle" type="button">Dark</button>
+    </div>
+  </div>
+</nav>
+
 <div class="wrap">
 
-  <header class="masthead">
-    <div>
-      <h1>What rent actually costs you</h1>
-      <p class="tagline">
-        Cost-of-living calculators go stale and quietly compare gross salaries. This one
-        recomputes rent against <strong>take-home pay</strong> — after federal, state, city
-        and payroll tax — on rent data that refreshes every month.
-      </p>
-      <div class="freshness" id="freshness"></div>
-    </div>
-    <button id="theme-toggle" type="button">Dark</button>
+  <header class="hero">
+    <p class="eyebrow">Every US county · <span id="tax-year-badge"></span> tax law</p>
+    <h1>What salary does this place<br>actually need?</h1>
+    <p class="tagline">
+      Cost-of-living calculators go stale and quietly compare gross salaries. This one
+      works out what a county costs to live in — rent <em>plus</em> everything else — and
+      the salary that clears it, against <strong>take-home pay</strong> after federal,
+      state, city and payroll tax.
+    </p>
+    <div class="freshness" id="freshness"></div>
   </header>
 
+  <div id="loading" class="loading">
+    <span class="spinner" aria-hidden="true"></span> Loading county data…
+  </div>
+
+  <main id="app" hidden>
+
   <section class="panel">
+    <p class="eyebrow">Step one</p>
     <h2>Your offer</h2>
     <p class="sub">
-      Start from a reference offer, then overwrite any field with your own numbers.
-      Compensation is the input you supply; rent is the part kept current for you.
+      Start from a real entry-level package, then overwrite any field with your own
+      numbers. Compensation is the input you supply; the cost of living is the part kept
+      current for you.
     </p>
 
     <div class="presets" id="presets"></div>
@@ -56,15 +76,82 @@
       </div>
     </div>
 
-    <div class="stats" id="stats"></div>
+    <p class="callout" id="location-caveat"></p>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">Step two</p>
+    <h2>Where this salary lands</h2>
+    <p class="sub">
+      <strong>Survival</strong> is the salary at which take-home exactly covers
+      necessities — MIT's living wage budget, which contains no savings and no
+      discretionary spending. <strong>Comfortable</strong> is the salary at which those
+      necessities fit inside half your take-home, leaving the 30% and 20% of the 50/30/20
+      rule for everything else.
+    </p>
+
+    <div class="picker-row">
+      <div class="field">
+        <label for="county-picker">County</label>
+        <input id="county-picker" list="county-options" autocomplete="off"
+               placeholder="Start typing a county or state…">
+        <datalist id="county-options"></datalist>
+        <div class="hint" id="county-hint"></div>
+      </div>
+
+      <div class="field">
+        <label for="rent-basis">Rent measured by</label>
+        <select id="rent-basis">
+          <option value="acs">Census ACS — every county</option>
+          <option value="zori">Zillow ZORI — current, fewer counties</option>
+        </select>
+        <div class="hint" id="rent-basis-hint"></div>
+      </div>
+    </div>
+
+    <div class="verdict" id="verdict"></div>
+
+    <div class="stats" id="county-stats"></div>
+
+    <div class="chart-scroll"><div id="ladder"></div></div>
+
+    <p class="callout warn" id="local-tax-warning" hidden></p>
+
+    <div class="subsection">
+      <h3>Where the money actually goes</h3>
+      <p class="sub">
+        The monthly cost of one adult living here, broken out. Rent is measured;
+        everything else is MIT's county-level budget for a single adult — a
+        <em>subsistence</em> standard, so it holds no savings, no holidays and no meals
+        out.
+      </p>
+      <div class="chart-scroll"><div id="breakdown"></div></div>
+      <div class="chart-scroll"><table id="breakdown-table"></table></div>
+    </div>
+
+    <details class="table-view">
+      <summary>Tax breakdown for this salary</summary>
+      <div class="chart-scroll"><table id="tax-table"></table></div>
+    </details>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow">Step three</p>
+    <h2>The whole country at once</h2>
+    <p class="sub" id="map-intro"></p>
+
+    <div class="chart-scroll"><div id="map"></div></div>
+    <div id="map-legend"></div>
+    <p class="sub" id="map-caption" style="margin-top:12px"></p>
   </section>
 
   <section class="panel">
     <h2>Rent as a share of monthly take-home</h2>
     <p class="sub">
-      Base salary only — no equity, no bonus. This is the number that decides whether you
-      can make rent every month, and it is the one a total-comp figure flatters most.
-      The dashed line is HUD's 30% cost-burdened threshold.
+      The 21 largest tech hubs, at metro level, on Zillow's current asking rents. Base
+      salary only — no equity, no bonus. This is the number that decides whether you can
+      make rent every month, and the one a total-comp figure flatters most. The dashed
+      line is HUD's 30% cost-burdened threshold.
     </p>
     <div class="chart-scroll"><div id="bars"></div></div>
     <p class="sub" id="bars-caption" style="margin-top:12px"></p>
@@ -76,12 +163,11 @@
   </section>
 
   <section class="panel">
-    <h2>Every metro against every offer</h2>
+    <h2>Every hub against every offer</h2>
     <p class="sub">
       Year-1 share of take-home, counting bonus and vested equity. Rows follow the ranking
-      above. Note that this is a snapshot of year one only, and the ordering does not
-      hold: Google's grant vests 33/33/22/12, so its pay falls each year until Amazon
-      overtakes it by year four.
+      above. This is a snapshot of year one only, and the ordering does not hold — the
+      vesting shapes below pull the packages apart over four years.
     </p>
     <div class="chart-scroll"><div id="heatmap"></div></div>
     <div id="heatmap-legend"></div>
@@ -104,45 +190,49 @@
     <p class="sub" id="multiples-caption" style="margin-top:14px"></p>
   </section>
 
+  </main>
+
   <footer class="notes">
-    <h2>Method and caveats</h2>
+    <h2>The short version of the caveats</h2>
     <ul>
       <li>
-        <strong>Rent</strong> is the Zillow Observed Rent Index — smoothed asking rents,
-        metro level, <em>all home types</em>. Zillow publishes no bedroom-level metro
-        series, so this is not a one-bedroom median and is not labelled as one.
+        <strong>Two rent measures, never mixed.</strong> Census ACS covers every county
+        but is a five-year average and includes utilities. Zillow ZORI is current and
+        monthly but excludes utilities and covers about 1,360 counties. Switch between
+        them above; the site never converts one into the other, because a national
+        multiplier was tested and proved far too unreliable to publish.
       </li>
       <li>
-        <strong>Metro, not neighbourhood.</strong> "San Francisco" covers the whole
-        metropolitan area, so it reads lower than a downtown listing.
+        <strong>Everything except rent</strong> is MIT's county-level budget for one adult
+        with no children — a subsistence standard, not a comfortable one.
       </li>
       <li>
-        <strong>Tax</strong> is computed for <span id="tax-year"></span>: federal brackets,
-        FICA with the Social Security wage cap and the additional Medicare surtax, each
-        state's own brackets and standard deduction, state payroll levies (CA SDI, WA
-        PFML and WA Cares), and city income tax in New York City and Philadelphia.
+        <strong>Local income tax is modelled for two cities only</strong>, New York City
+        and Philadelphia. Counties elsewhere that levy one carry an on-screen warning.
       </li>
       <li>
-        <strong>Assumes</strong> a single filer taking the standard deduction, with no
-        dependents, no 401(k) deferral and no itemised deductions. Your real number will
-        differ.
+        <strong>Compensation is not location-adjusted</strong>, and the presets are
+        national medians — edit the salary field to your actual offer.
       </li>
       <li>
-        <strong>Equity is discounted, not counted at face value.</strong> Unvested stock
-        is not cash; private company shares default to a 0% haircut because you cannot
-        pay rent with them.
+        <strong>Single filer, standard deduction, county-level geography.</strong> Your
+        real number will differ.
       </li>
       <li>
-        The Washington, DC metro spans three tax jurisdictions and is modelled as
-        Northern Virginia.
-      </li>
-      <li>
-        Sources:
-        <a href="https://www.zillow.com/research/data/">Zillow Research</a>,
-        <a href="https://taxfoundation.org/data/all/state/state-income-tax-rates-2026/">Tax Foundation state brackets</a>,
-        <a href="https://taxfoundation.org/data/all/federal/2026-tax-brackets/">federal brackets</a>.
+        <a href="method.html"><strong>Read the full method →</strong></a> — every source,
+        formula, assumption and known limitation, including the ones that make this
+        wrong.
       </li>
     </ul>
+    <p class="colophon">
+      Sources:
+      <a href="https://www.zillow.com/research/data/">Zillow Research</a>,
+      <a href="https://www.census.gov/programs-surveys/acs">US Census ACS</a>,
+      <a href="https://livingwage.mit.edu/">MIT Living Wage Calculator</a>,
+      <a href="https://taxfoundation.org/data/all/state/state-income-tax-rates-2026/">Tax Foundation</a>,
+      <a href="https://www.levels.fyi/">Levels.fyi</a>,
+      <a href="https://github.com/topojson/us-atlas">us-atlas</a>.
+    </p>
   </footer>
 
 </div>

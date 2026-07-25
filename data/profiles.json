@@ -1,55 +1,97 @@
 {
-  "note": "Illustrative reference offers, not a live feed. Compensation is the one input you are expected to overwrite with your own numbers — rent is the part this project keeps current automatically.",
+  "note": "Entry-level offers for engineers starting out — the audience this project is for. Figures are US national medians, so they are a starting point you overwrite with your own numbers, not a prediction of what any one team will offer you.",
   "source": {
-    "name": "Levels.fyi published medians",
+    "name": "Levels.fyi, median reported packages by company and level",
     "url": "https://www.levels.fyi/",
-    "asOf": "2026-07"
+    "asOf": "2026-07-25"
   },
+  "locationCaveat": "These are national medians. Real packages are location-adjusted: the same level is commonly 15-25% lower in a tier-3 metro than in the Bay Area or New York. No authoritative per-metro table is published, and this project will not invent one, so the salary field is editable — put your actual offer in it.",
+  "derivation": "baseSalary and the bonus total come from Levels.fyi directly. rsuGrant is its annualised stock figure multiplied by four, which is the grant it is derived from. The vesting and bonus SHAPE is each company's published schedule; where a company front-loads cash to offset a back-loaded vest, the totals still reconcile to Levels.fyi.",
   "equityHaircutRationale": "Unvested equity is not cash. Public-company RSUs are discounted for price risk between grant and vest; illiquid private equity is discounted to zero because you cannot pay rent with it.",
   "profiles": [
     {
-      "id": "google-l4",
+      "id": "google-l3",
       "company": "Google",
-      "title": "L4 Software Engineer",
-      "baseSalary": 175000,
-      "rsuGrant": 300000,
+      "title": "L3 Software Engineer II",
+      "short": "L3",
+      "baseSalary": 156000,
+      "rsuGrant": 137600,
       "vesting": [0.33, 0.33, 0.22, 0.12],
-      "bonuses": [26000, 26000, 26000, 26000],
+      "bonuses": [7800, 7800, 7800, 7800],
       "equityHaircut": 0.85,
-      "vestingNote": "Front-loaded: 33/33/22/12 pays out early."
+      "vestingNote": "Front-loaded 33/33/22/12, so the package shrinks each year as it vests unless a refresh grant tops it up."
     },
     {
-      "id": "meta-e4",
+      "id": "meta-e3",
       "company": "Meta",
-      "title": "E4 Software Engineer",
-      "baseSalary": 185000,
-      "rsuGrant": 400000,
+      "title": "E3 Software Engineer",
+      "short": "E3",
+      "baseSalary": 142000,
+      "rsuGrant": 135200,
       "vesting": [0.25, 0.25, 0.25, 0.25],
-      "bonuses": [25000, 25000, 25000, 25000],
+      "bonuses": [3600, 3600, 3600, 3600],
       "equityHaircut": 0.85,
-      "vestingNote": "Even 25% a year over four years."
+      "vestingNote": "Even 25% a year, so the headline number is also roughly what you get in year four."
     },
     {
-      "id": "amazon-l5",
+      "id": "amazon-sde1",
       "company": "Amazon",
-      "title": "L5 Software Engineer (SDE II)",
-      "baseSalary": 185000,
-      "rsuGrant": 220000,
+      "title": "SDE I (L4)",
+      "short": "SDE I",
+      "baseSalary": 142000,
+      "rsuGrant": 148800,
       "vesting": [0.05, 0.15, 0.4, 0.4],
-      "bonuses": [70000, 45000, 0, 0],
+      "bonuses": [21000, 14000, 0, 0],
       "equityHaircut": 0.85,
-      "vestingNote": "Back-loaded 5/15/40/40, but the sign-on bonuses are sized to offset it: total pay stays nearly flat. The cliff bites only if the grant underperforms."
+      "vestingNote": "Back-loaded 5/15/40/40, with sign-on cash bridging the first two years. Starts well below Google and finishes above it — but years three and four are almost all stock, so that gain rides on the share price."
+    },
+    {
+      "id": "apple-ict2",
+      "company": "Apple",
+      "title": "ICT2 Software Engineer",
+      "short": "ICT2",
+      "baseSalary": 142000,
+      "rsuGrant": 112400,
+      "vesting": [0.25, 0.25, 0.25, 0.25],
+      "bonuses": [3900, 3900, 3900, 3900],
+      "equityHaircut": 0.85,
+      "vestingNote": "Even 25% a year, on the smallest equity grant of the group."
+    },
+    {
+      "id": "netflix-l3",
+      "company": "Netflix",
+      "title": "L3 Software Engineer",
+      "short": "L3",
+      "baseSalary": 210000,
+      "rsuGrant": 7600,
+      "vesting": [0.25, 0.25, 0.25, 0.25],
+      "bonuses": [3500, 3500, 3500, 3500],
+      "equityHaircut": 0.85,
+      "vestingNote": "Almost entirely cash. The highest base here by a wide margin, and nothing to wait four years for."
+    },
+    {
+      "id": "microsoft-59",
+      "company": "Microsoft",
+      "title": "SDE (Level 59)",
+      "short": "L59",
+      "baseSalary": 128000,
+      "rsuGrant": 112000,
+      "vesting": [0.25, 0.25, 0.25, 0.25],
+      "bonuses": [6300, 6300, 6300, 6300],
+      "equityHaircut": 0.85,
+      "vestingNote": "Even 25% a year, on the lowest base of the group."
     },
     {
       "id": "startup-series-b",
-      "company": "Startup (Series B)",
-      "title": "Senior Software Engineer",
-      "baseSalary": 200000,
+      "company": "Startup",
+      "title": "Series B Software Engineer",
+      "short": "Series B",
+      "baseSalary": 165000,
       "rsuGrant": 150000,
       "vesting": [0.25, 0.25, 0.25, 0.25],
       "bonuses": [0, 0, 0, 0],
       "equityHaircut": 0,
-      "vestingNote": "Equity discounted to zero: private shares are illiquid and cannot cover rent."
+      "vestingNote": "Equity discounted to zero: private shares are illiquid, so the headline package and the money you can actually spend are the same thing."
     }
   ]
 }

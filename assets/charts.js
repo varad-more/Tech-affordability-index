@@ -62,6 +62,191 @@ function attachTooltip(target, html) {
   target.addEventListener('blur', hide);
 }
 
+/* ------------------------------------------------------------ stacked bar */
+
+/**
+ * One stacked bar: what a month costs, split into its parts.
+ *
+ * A single stacked bar rather than a pie or a column chart — the question is
+ * part-to-whole for one total, and a stacked bar keeps the parts on a common
+ * baseline so their widths stay directly comparable.
+ *
+ * Segments are separated by a 2px gap in the surface colour so adjacent fills
+ * never appear to merge into one block.
+ *
+ * @param {Array} segments { label, value, color }
+ */
+export function stackedBar(mount, segments, { total } = {}) {
+  mount.replaceChildren();
+
+  const W = 880;
+  const H = 116;
+  const barY = 8;
+  const barH = 42;
+  const GAP = 2;
+
+  const sum = total ?? segments.reduce((n, s) => n + s.value, 0);
+  if (!(sum > 0)) return;
+
+  const svg = el('svg', {
+    viewBox: `0 0 ${W} ${H}`,
+    width: W,
+    height: H,
+    role: 'img',
+    'aria-label': `Monthly cost of living of ${money(sum)}, split by category`,
+  });
+
+  let x = 0;
+  segments.forEach((segment, i) => {
+    const raw = (segment.value / sum) * W;
+    const isLast = i === segments.length - 1;
+    const width = Math.max(0, isLast ? W - x : raw - GAP);
+    if (width <= 0) return;
+
+    const g = el('g', { tabindex: '0' });
+    g.appendChild(
+      el('rect', { x, y: barY, width, height: barH, rx: 2, fill: segment.color }),
+    );
+
+    // Direct-label only the segments with room, never every one.
+    if (width > 54) {
+      g.appendChild(
+        el(
+          'text',
+          {
+            x: x + width / 2,
+            y: barY + barH + 16,
+            class: 'axis-label',
+            'text-anchor': 'middle',
+          },
+          segment.label,
+        ),
+      );
+      g.appendChild(
+        el(
+          'text',
+          {
+            x: x + width / 2,
+            y: barY + barH + 30,
+            class: 'value-label',
+            'text-anchor': 'middle',
+            'font-weight': '600',
+          },
+          money(segment.value),
+        ),
+      );
+    }
+
+    attachTooltip(
+      g,
+      `<div class="t-title">${segment.label}</div>` +
+        `<div class="t-row">${money(segment.value)}/mo</div>` +
+        `<div class="t-row">${pct(segment.value / sum, 1)} of the total</div>`,
+    );
+    svg.appendChild(g);
+    x += raw;
+  });
+
+  mount.appendChild(svg);
+}
+
+/* ---------------------------------------------------------- salary ladder */
+
+/**
+ * Where one salary lands against a metro's thresholds — a bullet chart, the
+ * standard form for a single measure read against qualitative ranges.
+ *
+ * A bar chart would compare the four numbers to each other, which is not the
+ * question. The question is which range this salary falls in, so the ranges
+ * become the background and the salary becomes the mark.
+ *
+ * @param {object} bands   { survival, gettingBy, comfortable } gross salaries
+ * @param {number} salary  the salary being placed
+ * @param {object} colors  band id -> CSS colour value
+ */
+export function salaryLadder(mount, { bands, salary, colors, bandLabel }) {
+  mount.replaceChildren();
+
+  const W = 880;
+  const H = 104;
+  const padL = 8;
+  const padR = 8;
+  const barY = 30;
+  const barH = 26;
+
+  const plotW = W - padL - padR;
+  // Leave headroom past the comfortable line so the top band is visibly a range
+  // and not a hard ceiling, and never let the marker sit on the edge.
+  const max = Math.max(bands.comfortable * 1.3, salary * 1.12);
+  const x = (v) => padL + Math.max(0, Math.min(1, v / max)) * plotW;
+
+  const svg = el('svg', {
+    viewBox: `0 0 ${W} ${H}`,
+    width: W,
+    height: H,
+    role: 'img',
+    'aria-label': `Salary of ${money(salary)} shown against this metro's survival, getting by and comfortable thresholds`,
+  });
+
+  const regions = [
+    { from: 0, to: bands.survival, id: 'below-survival' },
+    { from: bands.survival, to: bands.gettingBy, id: 'survival' },
+    { from: bands.gettingBy, to: bands.comfortable, id: 'getting-by' },
+    { from: bands.comfortable, to: max, id: 'comfortable' },
+  ];
+
+  for (const region of regions) {
+    const x0 = x(region.from);
+    const width = x(region.to) - x0;
+    if (width <= 0) continue;
+    svg.appendChild(
+      el('rect', { x: x0, y: barY, width, height: barH, fill: colors[region.id], rx: 2 }),
+    );
+  }
+
+  // Threshold ticks, labelled beneath the strip.
+  const ticks = [
+    { value: bands.survival, label: 'Survival' },
+    { value: bands.gettingBy, label: 'Getting by' },
+    { value: bands.comfortable, label: 'Comfortable' },
+  ];
+
+  for (const tick of ticks) {
+    const tx = x(tick.value);
+    svg.appendChild(
+      el('line', { x1: tx, y1: barY, x2: tx, y2: barY + barH + 5, class: 'ladder-tick' }),
+    );
+    svg.appendChild(
+      el('text', { x: tx, y: barY + barH + 19, class: 'axis-label', 'text-anchor': 'middle' }, tick.label),
+    );
+    svg.appendChild(
+      el(
+        'text',
+        { x: tx, y: barY + barH + 32, class: 'value-label', 'text-anchor': 'middle', 'font-weight': '600' },
+        money(tick.value),
+      ),
+    );
+  }
+
+  // The salary marker, drawn last and in text ink so it reads against any band.
+  const sx = x(salary);
+  svg.appendChild(
+    el('line', { x1: sx, y1: barY - 12, x2: sx, y2: barY + barH + 2, class: 'ladder-marker' }),
+  );
+
+  // Keep the marker's label inside the plate at both extremes.
+  const anchor = sx > W - 120 ? 'end' : sx < 120 ? 'start' : 'middle';
+  svg.appendChild(
+    el(
+      'text',
+      { x: sx, y: barY - 17, class: 'ladder-marker-label', 'text-anchor': anchor },
+      `${money(salary)} — ${bandLabel}`,
+    ),
+  );
+
+  mount.appendChild(svg);
+}
+
 /** Bar with only its data end rounded, so the mark stays anchored to the baseline. */
 function barPath(x, y, w, h, r) {
   const radius = Math.max(0, Math.min(r, w));
@@ -352,4 +537,4 @@ export function sparkline(mount, points, { threshold, domain, formatPoint } = {}
   mount.appendChild(svg);
 }
 
-export { pct, money };
+export { pct, money, attachTooltip };

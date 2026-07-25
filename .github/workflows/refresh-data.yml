@@ -4,6 +4,9 @@ name: Refresh rent data
 # 16th in July 2026. A fixed monthly run that fires before the drop waits a full
 # extra month, so poll weekly instead: the ingest is a cheap read and the commit
 # step no-ops unless the data actually moved.
+#
+# The Census ACS and MIT living wage sources are annual, so they are not on this
+# schedule; run them by hand when a new vintage lands.
 on:
   schedule:
     - cron: '0 6 * * 1'
@@ -21,18 +24,21 @@ jobs:
         with:
           node-version: '22'
 
-      # Exits non-zero if the feed is unreachable, malformed, missing a tracked
-      # metro, or older than what is already committed. A failed run leaves the
-      # last good data in place rather than publishing placeholders.
-      - name: Fetch ZORI
+      # Each ingest exits non-zero if its feed is unreachable, malformed, missing
+      # a tracked metro, or older than what is already committed. A failed run
+      # leaves the last good data in place rather than publishing placeholders.
+      - name: Fetch metro ZORI
         run: node scripts/fetch-rents.mjs
+
+      - name: Fetch county ZORI
+        run: node scripts/fetch-county-rents.mjs
 
       - name: Verify the new data still passes
         run: node --test "test/*.test.mjs"
 
       - name: Commit if the data moved
         run: |
-          if git diff --quiet -- data/rents.json; then
+          if git diff --quiet -- data/rents.json data/county-rents.json; then
             echo "No change in rent data."
             exit 0
           fi
@@ -40,6 +46,6 @@ jobs:
           ASOF=$(node -p "require('./data/rents.json').asOf")
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/rents.json
+          git add data/rents.json data/county-rents.json
           git commit -m "data: refresh rents to ${ASOF}"
           git push
