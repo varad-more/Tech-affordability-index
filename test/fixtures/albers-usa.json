@@ -1,0 +1,153 @@
+{
+  "note": "Generated from d3-geo geoAlbersUsa() at its default scale 1070 / translate [480,250]. src/projection.js is a zero-dependency reimplementation; these fixtures pin it to d3-geo output. Regenerate only if the projection constants intentionally change.",
+  "generator": "d3-geo@3.1.1",
+  "points": [
+    {
+      "name": "San Francisco",
+      "lon": -122.42,
+      "lat": 37.77,
+      "expected": [
+        107.393108529,
+        214.229551085
+      ]
+    },
+    {
+      "name": "Seattle",
+      "lon": -122.33,
+      "lat": 47.61,
+      "expected": [
+        159.147741377,
+        37.024842816
+      ]
+    },
+    {
+      "name": "New York",
+      "lon": -74.01,
+      "lat": 40.71,
+      "expected": [
+        794.552895409,
+        176.596791931
+      ]
+    },
+    {
+      "name": "Austin",
+      "lon": -97.74,
+      "lat": 30.27,
+      "expected": [
+        460.643588017,
+        408.347963696
+      ]
+    },
+    {
+      "name": "Miami",
+      "lon": -80.19,
+      "lat": 25.76,
+      "expected": [
+        755.962277876,
+        470.232582302
+      ]
+    },
+    {
+      "name": "Minneapolis",
+      "lon": -93.27,
+      "lat": 44.98,
+      "expected": [
+        524.668860115,
+        131.439330019
+      ]
+    },
+    {
+      "name": "Denver",
+      "lon": -104.99,
+      "lat": 39.74,
+      "expected": [
+        360.943778515,
+        224.375010315
+      ]
+    },
+    {
+      "name": "Anchorage",
+      "lon": -149.9,
+      "lat": 61.22,
+      "expected": [
+        171.163129407,
+        446.931631798
+      ]
+    },
+    {
+      "name": "Honolulu",
+      "lon": -157.86,
+      "lat": 21.31,
+      "expected": [
+        298.448980729,
+        450.929870812
+      ]
+    },
+    {
+      "name": "Adak",
+      "lon": -176.63,
+      "lat": 51.88,
+      "expected": [
+        68.309217313,
+        492.95197561
+      ]
+    },
+    {
+      "name": "Eastport",
+      "lon": -67,
+      "lat": 44.81,
+      "expected": [
+        866.267612625,
+        77.076781541
+      ]
+    },
+    {
+      "name": "Cape Flattery",
+      "lon": -124.73,
+      "lat": 48.38,
+      "expected": [
+        134.238395177,
+        14.721159587
+      ]
+    },
+    {
+      "name": "Brownsville",
+      "lon": -97.14,
+      "lat": 25.96,
+      "expected": [
+        469.341876104,
+        488.70069821
+      ]
+    },
+    {
+      "name": "Hilo",
+      "lon": -155,
+      "lat": 19.6,
+      "expected": [
+        348.804389392,
+        482.596562907
+      ]
+    },
+    {
+      "name": "Sitka",
+      "lon": -135.3,
+      "lat": 57.05,
+      "expected": [
+        223.773427774,
+        465.400109379
+      ]
+    },
+    {
+      "name": "mid-Atlantic (off map)",
+      "lon": -30,
+      "lat": 40,
+      "expected": null
+    },
+    {
+      "name": "Tokyo (off map)",
+      "lon": 140,
+      "lat": 35,
+      "expected": null
+    }
+  ]
+}
