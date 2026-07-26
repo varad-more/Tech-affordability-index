@@ -294,3 +294,60 @@ Two false alarms worth recording, both in the measuring rather than the page:
   animation frames, reporting eighteen contrast failures that do not exist.
   Clicking the real toggle and waiting gives the correct colours, so the page is
   fine and the measurement needed to settle.
+
+---
+
+## Review: production readiness pass (2026-07-26)
+
+Everything in this pass was requested in one batch: production review, product
+name, clean URLs, bug hunt, field check, commit consolidation, repo metadata.
+
+### Done
+
+- [x] **Product name kept.** Brainstormed alternatives (Countywise, What It
+      Takes, Priced In, Salary Floor) and researched collisions: "salary floor"
+      is an established HR term for an employer's pay minimum, which is a
+      different quantity from what this site computes. Name stays as it is.
+- [x] **Clean URLs without a server.** Pages moved to `states/index.html`,
+      `timing/index.html`, `method/index.html`, served at `/states/` etc.
+      Flask was rejected: Pages runs no process. React was rejected: it adds a
+      build step to a project whose selling point is not having one.
+- [x] `assets/data.js` resolves data paths against the module, not the document,
+      so one path works at every page depth.
+- [x] Redirect stubs at `timing.html` and `method.html`, the two URLs that were
+      already public.
+- [x] `scripts/serve.mjs` now does directory indexes and the trailing-slash
+      redirect, so local serving matches Pages.
+- [x] Method page: `Reproducing it` replaced with a claim-to-file map. New
+      section documenting how a state gets a number, which was undocumented.
+- [x] README: full reproduction guide, pipeline in dependency order.
+- [x] History: 20 commits to 15, trivial ci/docs commits folded into parents.
+- [x] Repo description, homepage and 14 topics set.
+- [x] Open Graph, Twitter card and canonical URL on all four pages; 404 page.
+
+### Bugs found and fixed in this pass
+
+- The weekly refresh workflow updated the map's rent data but never rebuilt
+  `rent-history.json` from the same feed, so the timing page would have drifted
+  to naming an older month than the rest of the site.
+- `scripts/fetch-living-wage.mjs` and `data/living-wage.json` were dead. The
+  county ingest superseded them and nothing had read them since.
+- The timing and method pages were missing the skip link the other two had.
+- `npm run refresh` pulled the annual ACS source on a monthly cadence.
+- README cited ACS table B25064; the ingest has used B25031 since it superseded
+  B25064.
+
+### Verified, not assumed
+
+- 144 unit + 52 browser tests pass. Two new browser tests cover the redirects
+  and assert every internal link on every page resolves.
+- Every count printed on the method page checked against the committed data:
+  3,142 basemap counties, 3,123 ACS, 2,920 with a 1BR figure, 3,133 living wage,
+  1,359 ZORI, 51 states plus DC.
+- CI green on the rewritten history, including the Pages deploy.
+
+### Not done
+
+- Repo is still private. Making it public is the user's call.
+- ACS B25058, B25077, Zillow ZHVI and ZORI-by-ZIP remain unapproved and
+  unstarted.
