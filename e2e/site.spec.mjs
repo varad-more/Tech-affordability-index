@@ -1227,7 +1227,7 @@ test.describe('affordability index', () => {
     expect(errors).toEqual([]);
   });
 
-  test('pages are served from clean URLs, and the old ones still work', async ({ page }) => {
+  test('pages are served from clean URLs, and only from clean URLs', async ({ page }) => {
     // A directory index means /timing/ is the real page. Without the trailing
     // slash the server has to redirect, or every relative link on the page
     // resolves one level too high and the whole page 404s its own assets.
@@ -1237,11 +1237,15 @@ test.describe('affordability index', () => {
       expect(bare.headers().location).toBe(`/${dir}/`);
     }
 
-    // The two URLs that were public before the move must not break.
-    for (const [stub, dest] of [['/timing.html', '/timing/'], ['/method.html', '/method/']]) {
-      await page.goto(stub);
-      await page.waitForURL(`**${dest}`);
-      await expect(page.locator('h1')).toBeVisible();
+    // No page answers at a .html address. Stubs used to sit at these two,
+    // forwarding the URLs the site had before the clean-URL move — but those
+    // URLs belonged to the domain this site has since left, so on this host
+    // they never existed and the stubs preserved nothing. Asserted rather than
+    // just deleted, because the tempting fix for a stray .html link is to add
+    // the alias back rather than to correct the link.
+    for (const gone of ['/timing.html', '/method.html']) {
+      const res = await page.request.get(gone);
+      expect(res.status(), `${gone} should not be served`).toBe(404);
     }
   });
 
@@ -1376,7 +1380,13 @@ test.describe('affordability index', () => {
   test('every internal link on every page resolves', async ({ page }) => {
     // The clean-URL move rewrote every href by hand. A typo in one of them is
     // invisible until someone clicks it, and looks exactly like a working site.
-    for (const path of ['/', '/states/', '/timing/', '/method/']) {
+    //
+    // 404.html is in the list because its links are the only absolute ones on
+    // the site — GitHub Pages serves that file for a miss at any depth, so a
+    // relative href there would resolve against whatever the reader mistyped.
+    // Absolute paths are only correct while the site is served from a domain
+    // root, which is exactly the assumption worth pinning.
+    for (const path of ['/', '/states/', '/timing/', '/method/', '/404.html']) {
       await page.goto(path);
 
       const links = await page.locator('a[href]').evaluateAll((nodes) =>
@@ -1393,5 +1403,47 @@ test.describe('affordability index', () => {
           .toBeLessThan(400);
       }
     }
+  });
+
+  test('every canonical and share URL names the deployed domain', async ({ page }) => {
+    // These tags are the one part of the site a browser test cannot catch by
+    // rendering: a canonical left pointing at a domain the site no longer
+    // occupies looks perfect on screen and quietly tells search engines the
+    // page is a duplicate of something that no longer exists. So the assertion
+    // reads CNAME — the file that actually decides where the site lives — and
+    // requires the head tags to agree with it.
+    const host = readFileSync(new URL('../CNAME', import.meta.url), 'utf8').trim();
+    expect(host, 'CNAME must hold exactly one bare hostname').toMatch(/^[a-z0-9.-]+$/);
+
+    const pages = [
+      ['/', ''],
+      ['/states/', 'states/'],
+      ['/timing/', 'timing/'],
+      ['/method/', 'method/'],
+    ];
+
+    for (const [path, suffix] of pages) {
+      await page.goto(path);
+      const expected = `https://${host}/${suffix}`;
+
+      const head = await page.evaluate(() => ({
+        canonical: document.querySelector('link[rel="canonical"]')?.href ?? null,
+        ogUrl: document.querySelector('meta[property="og:url"]')?.content ?? null,
+        ogImage: document.querySelector('meta[property="og:image"]')?.content ?? null,
+      }));
+
+      expect(head.canonical, `canonical on ${path}`).toBe(expected);
+      expect(head.ogUrl, `og:url on ${path}`).toBe(expected);
+      expect(head.ogImage, `og:image on ${path}`).toBe(`https://${host}/assets/og-card.jpg`);
+    }
+
+    // The sitemap is the other place the domain is written down, and it is the
+    // copy nobody looks at, so it is the one most likely to be left behind.
+    const sitemap = await page.request.get('/sitemap.xml').then((r) => r.text());
+    for (const [, suffix] of pages) {
+      expect(sitemap, 'sitemap.xml').toContain(`<loc>https://${host}/${suffix}</loc>`);
+    }
+    expect(sitemap, 'sitemap.xml must not list a page that no longer exists')
+      .not.toContain('.html');
   });
 });

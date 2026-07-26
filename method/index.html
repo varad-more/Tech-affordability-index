@@ -3,18 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Method · Tech Affordability Index</title>
-  <meta name="description" content="Every source, formula, assumption and known limitation behind the Tech Affordability Index.">
+  <title>Method · Affordability Index</title>
+  <meta name="description" content="Every source, formula, assumption and known limitation behind the Affordability Index.">
   <meta property="og:type" content="website">
-  <meta property="og:site_name" content="Tech Affordability Index">
-  <meta property="og:title" content="Method · Tech Affordability Index">
-  <meta property="og:description" content="Every source, formula, assumption and known limitation behind the Tech Affordability Index.">
-  <meta property="og:url" content="https://varadmore.me/Tech-affordability-index/method/">
-  <meta property="og:image" content="https://varadmore.me/Tech-affordability-index/assets/og-card.jpg">
+  <meta property="og:site_name" content="Affordability Index">
+  <meta property="og:title" content="Method · Affordability Index">
+  <meta property="og:description" content="Every source, formula, assumption and known limitation behind the Affordability Index.">
+  <meta property="og:url" content="https://affordability-index.varadmore.me/method/">
+  <meta property="og:image" content="https://affordability-index.varadmore.me/assets/og-card.jpg">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
-  <link rel="canonical" href="https://varadmore.me/Tech-affordability-index/method/">
+  <link rel="canonical" href="https://affordability-index.varadmore.me/method/">
   <link rel="stylesheet" href="../assets/styles.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>🏙️</text></svg>">
 </head>
@@ -24,13 +24,13 @@
 
 <nav class="topnav">
   <div class="topnav-inner">
-    <a class="brand" href="../">Tech&nbsp;Affordability&nbsp;Index</a>
+    <a class="brand" href="../">Affordability&nbsp;Index</a>
     <div class="topnav-links">
       <a href="../">Explore</a>
       <a href="../states/">By state</a>
       <a href="../timing/">When to move</a>
       <a href="../method/" aria-current="page">Method</a>
-      <a href="https://github.com/varad-more/Tech-affordability-index">Source</a>
+      <a href="https://github.com/varad-more/affordability-index">Source</a>
       <button id="theme-toggle" type="button">Dark</button>
     </div>
   </div>
@@ -816,7 +816,7 @@ index[m]  = mean of ratio[i] for every i falling in calendar month m
       about 1,700 lines of plain JavaScript in total.
     </p>
     <p>
-      The <a href="https://github.com/varad-more/Tech-affordability-index#readme">README</a>
+      The <a href="https://github.com/varad-more/affordability-index#readme">README</a>
       has the commands to run it, refresh the data and execute the tests.
     </p>
 
@@ -827,33 +827,33 @@ index[m]  = mean of ratio[i] for every i falling in calendar month m
       <tbody>
         <tr>
           <td>The brackets, deductions and payroll rates are the current year's</td>
-          <td><a href="https://github.com/varad-more/Tech-affordability-index/blob/main/src/tax-data.js"><code>src/tax-data.js</code></a><br>
+          <td><a href="https://github.com/varad-more/affordability-index/blob/main/src/tax-data.js"><code>src/tax-data.js</code></a><br>
               Every constant carries the source it came from and the date it was read.</td>
         </tr>
         <tr>
           <td>Marginal tax is walked correctly, and take-home is what is left</td>
-          <td><a href="https://github.com/varad-more/Tech-affordability-index/blob/main/src/tax.js"><code>src/tax.js</code></a></td>
+          <td><a href="https://github.com/varad-more/affordability-index/blob/main/src/tax.js"><code>src/tax.js</code></a></td>
         </tr>
         <tr>
           <td>The three salary thresholds come out of the budgeting rules named above</td>
-          <td><a href="https://github.com/varad-more/Tech-affordability-index/blob/main/src/bands.js"><code>src/bands.js</code></a></td>
+          <td><a href="https://github.com/varad-more/affordability-index/blob/main/src/bands.js"><code>src/bands.js</code></a></td>
         </tr>
         <tr>
           <td>A state's figures are a real county's, never an invented average</td>
-          <td><a href="https://github.com/varad-more/Tech-affordability-index/blob/main/src/state-rollup.js"><code>src/state-rollup.js</code></a></td>
+          <td><a href="https://github.com/varad-more/affordability-index/blob/main/src/state-rollup.js"><code>src/state-rollup.js</code></a></td>
         </tr>
         <tr>
           <td>The seasonal index is a centred moving average with the trend removed</td>
-          <td><a href="https://github.com/varad-more/Tech-affordability-index/blob/main/src/seasonality.js"><code>src/seasonality.js</code></a></td>
+          <td><a href="https://github.com/varad-more/affordability-index/blob/main/src/seasonality.js"><code>src/seasonality.js</code></a></td>
         </tr>
         <tr>
           <td>Nothing is filled in when a source goes quiet</td>
-          <td><a href="https://github.com/varad-more/Tech-affordability-index/tree/main/scripts"><code>scripts/</code></a><br>
+          <td><a href="https://github.com/varad-more/affordability-index/tree/main/scripts"><code>scripts/</code></a><br>
               One ingest per source, each of which exits non-zero rather than guessing.</td>
         </tr>
         <tr>
           <td>All of the above stays true</td>
-          <td><a href="https://github.com/varad-more/Tech-affordability-index/tree/main/test"><code>test/</code></a><br>
+          <td><a href="https://github.com/varad-more/affordability-index/tree/main/test"><code>test/</code></a><br>
               144 assertions over the maths, the ingests and the claims on these pages.</td>
         </tr>
       </tbody>
@@ -886,7 +886,7 @@ index[m]  = mean of ratio[i] for every i falling in calendar month m
 
     <div class="footer-grid">
       <div class="footer-brand">
-        <p class="footer-mark">Tech Affordability Index</p>
+        <p class="footer-mark">Affordability Index</p>
         <p class="footer-blurb">
           What a place actually costs, against what you actually keep. Every US county,
           priced on current rent and current-year tax law rather than on a gross number
@@ -902,7 +902,7 @@ index[m]  = mean of ratio[i] for every i falling in calendar month m
           <li><a href="../states/">By state</a></li>
           <li><a href="../timing/">When to move</a></li>
           <li><a href="../method/">Method &amp; limitations</a></li>
-          <li><a href="https://github.com/varad-more/Tech-affordability-index">Source on GitHub</a></li>
+          <li><a href="https://github.com/varad-more/affordability-index">Source on GitHub</a></li>
         </ul>
       </nav>
 
@@ -945,7 +945,7 @@ index[m]  = mean of ratio[i] for every i falling in calendar month m
     <div class="footer-bar">
       <p>
         © 2026 Varad More ·
-        <a href="https://github.com/varad-more/Tech-affordability-index/blob/main/LICENSE">MIT licence</a>
+        <a href="https://github.com/varad-more/affordability-index/blob/main/LICENSE">MIT licence</a>
       </p>
       <p class="footer-boast">
         No trackers, no cookies, no analytics, no third-party requests. The typeface

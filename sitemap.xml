@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Four pages, listed at their canonical clean URLs.
+
+  Deliberately no <lastmod>. A hand-written date here would be wrong within a
+  week of the next data refresh and there is nothing that would catch it, which
+  is the same failure this project refuses everywhere else: a number that looks
+  maintained but is not. Crawlers discount lastmod they cannot trust anyway.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://affordability-index.varadmore.me/</loc></url>
+  <url><loc>https://affordability-index.varadmore.me/states/</loc></url>
+  <url><loc>https://affordability-index.varadmore.me/timing/</loc></url>
+  <url><loc>https://affordability-index.varadmore.me/method/</loc></url>
+</urlset>

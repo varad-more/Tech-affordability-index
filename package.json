@@ -1,5 +1,5 @@
 {
-  "name": "tech-affordability-index",
+  "name": "affordability-index",
   "version": "1.0.0",
   "description": "What salary you actually need to live in any US county, on current rent, cost-of-living and tax data.",
   "type": "module",

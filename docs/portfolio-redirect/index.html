@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Moved to affordability-index.varadmore.me</title>
+
+  <!--
+    This file does not belong to this repository. It belongs in the portfolio
+    repo (varad-more.github.io), at Tech-affordability-index/index.html, where it
+    stands in for the path this site used to be served from. It is kept here so
+    the reason for it stays with the move that caused it.
+
+    The canonical tag is what actually transfers search ranking; the refresh and
+    the script are what move a human. All three point at the same place.
+  -->
+  <link rel="canonical" href="https://affordability-index.varadmore.me/">
+  <meta http-equiv="refresh" content="0; url=https://affordability-index.varadmore.me/">
+  <script>
+    // Sub-paths are preserved when this file is also copied alongside them. At
+    // the top level the suffix is empty, so this resolves to the same URL the
+    // meta refresh already names.
+    //
+    // The .html rule matters: the destination site serves nothing from a .html
+    // address, so forwarding timing.html verbatim would land on a 404. The old
+    // addresses map onto the clean ones instead.
+    var rest = location.pathname
+      .replace(/^\/Tech-affordability-index\/?/, '')
+      .replace(/^index\.html$/, '')
+      .replace(/\.html$/, '/');
+    location.replace('https://affordability-index.varadmore.me/' + rest + location.search + location.hash);
+  </script>
+
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      margin: 0; min-height: 100vh; display: grid; place-content: center;
+      gap: 14px; padding: 32px; max-width: 34rem; margin-inline: auto;
+      font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: light-dark(#f5f3ee, #14140f);
+      color: light-dark(#14140f, #f0ede4);
+    }
+    h1 { font-size: clamp(1.6rem, 5vw, 2.4rem); line-height: 1.1; margin: 0; letter-spacing: -0.02em; }
+    p { margin: 0; color: light-dark(#4a4842, #b4b0a4); }
+    a { color: inherit; text-underline-offset: 3px; }
+  </style>
+</head>
+<body>
+  <h1>This moved.</h1>
+  <p>
+    The Affordability Index now lives at
+    <a href="https://affordability-index.varadmore.me/">affordability-index.varadmore.me</a>.
+  </p>
+</body>
+</html>

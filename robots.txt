@@ -1,0 +1,11 @@
+# Affordability Index — https://affordability-index.varadmore.me/
+#
+# Everything here is public, computed data. Nothing is gated and nothing is
+# personal, so there is nothing to withhold from a crawler.
+#
+# Four pages, all listed in the sitemap, none served from a .html address.
+
+User-agent: *
+Allow: /
+
+Sitemap: https://affordability-index.varadmore.me/sitemap.xml

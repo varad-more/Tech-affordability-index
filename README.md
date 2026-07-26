@@ -1,6 +1,6 @@
-# Tech Affordability Index
+# Affordability Index
 
-### → **[Live site](https://varadmore.me/Tech-affordability-index/)** · **[By state](https://varadmore.me/Tech-affordability-index/states/)** · **[When to move](https://varadmore.me/Tech-affordability-index/timing/)** · **[Method](https://varadmore.me/Tech-affordability-index/method/)**
+### → **[Live site](https://affordability-index.varadmore.me/)** · **[By state](https://affordability-index.varadmore.me/states/)** · **[When to move](https://affordability-index.varadmore.me/timing/)** · **[Method](https://affordability-index.varadmore.me/method/)**
 
 **What salary does a place actually need, and does your offer clear it?**
 
@@ -81,8 +81,8 @@ JavaScript that is in this repository. Playwright is the only dependency, and it
 is used only by the browser tests.
 
 ```bash
-git clone https://github.com/varad-more/Tech-affordability-index
-cd Tech-affordability-index
+git clone https://github.com/varad-more/affordability-index
+cd affordability-index
 npm install          # Playwright only; the site itself needs nothing
 npm run serve        # http://localhost:4173
 ```
@@ -96,7 +96,7 @@ work without an `.html` on the end.
 
 ```bash
 npm test             # 144 unit tests: tax engine, bands, projection, ingests, page claims
-npm run test:e2e     # 52 browser tests: asserts the charts actually drew
+npm run test:e2e     # 56 browser tests: asserts the charts actually drew
 npm run test:all     # both
 ```
 
@@ -157,7 +157,16 @@ diffable commit, which makes the claim that these numbers are current auditable
 rather than asserted.
 
 **Deploying your own:** enable GitHub Pages with **GitHub Actions** as the
-source. There is nothing else to configure.
+source, then either point `CNAME` at a hostname you control — with a DNS `CNAME`
+record for it aimed at `<your-user>.github.io` — or delete the file to be served
+from `<your-user>.github.io/<repo>/` instead. Nothing else is configured.
+
+One catch if you take the second route: the links on `404.html` are absolute,
+because GitHub Pages serves that file for a miss at *any* depth and a relative
+href there would resolve against whatever path the reader mistyped. Absolute
+paths are right at a domain root and wrong under a `/<repo>/` prefix, so they
+need the prefix adding by hand. Every other link on the site is relative and
+moves either way without edits.
 
 Rolling to a new tax year means editing `src/tax-data.js` and nothing else.
 
@@ -209,6 +218,10 @@ index.html            the tool
 states/               what a state costs, cheapest county to dearest
 timing/               when in the year a lease is cheapest
 method/               full methodology, sources and limitations
+404.html              self-contained; served for a miss at any depth
+CNAME                 the subdomain the site is served from
+robots.txt            crawl policy, and where the sitemap is
+sitemap.xml           the four canonical URLs, no invented lastmod
 assets/               rendering; charts.js and map.js are hand-rolled SVG, zero deps
 src/tax.js            tax engine (holds no constants)
 src/tax-data.js       every bracket and rate, each with its source
@@ -222,13 +235,23 @@ test/                 node --test
 e2e/                  playwright
 ```
 
-Pages sit in directories so they serve at `/states/` rather than `/states.html`.
-`timing.html` and `method.html` remain as redirect stubs, because those two URLs
-were public before the move.
+Pages sit in directories so they serve at `/states/` rather than `/states.html`,
+and nothing answers at a `.html` address at all. Redirect stubs used to hold
+`/timing.html` and `/method.html` open, but the URLs they were forwarding
+belonged to the domain the site has since left — on this host they never
+existed, so the stubs preserved nothing and are gone. A test pins their absence,
+because the tempting fix for a stray `.html` link is to add the alias back
+rather than to correct the link.
+
+The site is served from its own subdomain rather than as a project page under a
+portfolio's apex domain. That is what lets it own `/`, `robots.txt` and
+`sitemap.xml`, and it is why local development and production now resolve every
+path identically — the prefix that used to differ between them is gone.
+`docs/portfolio-redirect/` holds the stub that keeps the old address working.
 
 ## Known limitations
 
-The [method page](https://varadmore.me/Tech-affordability-index/method/) carries
+The [method page](https://affordability-index.varadmore.me/method/) carries
 the full list. The ones that bite hardest:
 
 - **Local income tax is modelled for two cities only:** New York City and

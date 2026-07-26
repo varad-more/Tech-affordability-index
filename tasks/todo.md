@@ -412,3 +412,84 @@ steps: 3 / 3 / 13 / 8 / 12 / 8 / 2.
 Three places asserted "no state fill anywhere", which is no longer true: the
 states page footnote, the method page's "Why counties, and why not states", and
 the README. Each now says what the one state fill encodes and why it qualifies.
+
+## Review: rename, and a subdomain of its own (2026-07-26)
+
+Moved the site off `varadmore.me/Tech-affordability-index/` and onto
+`affordability-index.varadmore.me`, renamed to **Affordability Index**, and
+audited it for going public.
+
+### Why the name changed
+
+Both words in the old name had drifted from the product. **"Tech"** describes 7
+reference offers and 21 hubs bolted onto a tool that covers all 3,142 counties
+and any salary typed in. **"Index"** promises a single composite score, and the
+site's strongest opinion is a refusal to produce one — it will not even shade a
+state by cost, on the grounds that no one number stands for a whole place. The
+first word was dropped. The second was kept: it was the user's call, and the
+subdomain reads better for it.
+
+### Why a subdomain is better than a project path
+
+Not cosmetic. A project page under an apex domain cannot own `/`, so it can have
+no `robots.txt` and no `sitemap.xml` — both belong to whoever owns the root, and
+that was the portfolio. Both now exist here.
+
+It also closed a standing dev/prod divergence: `npm run serve` has always served
+from a root while production served from `/Tech-affordability-index/`, which is
+exactly why `404.html`'s absolute links were correct in production and dead
+locally, and why nothing caught it. The two now resolve every path identically.
+
+### Decisions
+
+**No `<lastmod>` in the sitemap.** A hand-written date is wrong within a week of
+the next data refresh and nothing would catch it — the same failure mode this
+project refuses everywhere else. Crawlers discount lastmod they cannot trust.
+
+**The old URL gets a redirect, not a 404.** `docs/portfolio-redirect/` holds one
+stub for the portfolio repo. It carries a canonical, which is the part that
+actually transfers ranking; the refresh and the script only move humans. One
+file covers all four paths because it rewrites the prefix from the path it was
+served from rather than hardcoding a destination.
+
+**Held the push until DNS exists.** The apex is on GitHub's four A records and
+`www` is a CNAME, but there is no wildcard, so the new host resolved to nothing.
+Pushing would have taken the portfolio's live link down with nothing to replace
+it — the rename and the domain move are coupled, since a project page's path is
+derived from the repo name.
+
+### Verified
+
+- 144 unit + **56** browser tests pass, up from 55.
+- 69 references rewritten across 8 files; a grep for the old name and old URL
+  returns nothing outside this log, where the old name is history rather than a
+  claim.
+- No secrets, no credentials, no personal data anywhere in the tree. MIT licence
+  present. 25 MB working tree, largest tracked file 728 KB.
+- `assets/og-card.jpg` needed no regeneration — it is a crop of the hero taken
+  below the nav, so the brand name never appears in it.
+
+### New test
+
+**`every canonical and share URL names the deployed domain`** reads `CNAME` —
+the file that actually decides where the site lives — and requires every
+canonical, `og:url` and `og:image` to agree with it, stubs included. This is the
+one class of bug a rendering test cannot see: a canonical pointing at a domain
+the site no longer occupies looks perfect on screen while telling search engines
+the page duplicates something that no longer exists.
+
+`404.html` also joined the internal-link test, which was only possible once the
+site owned a domain root.
+
+### The `.html` stubs went too
+
+`timing.html` and `method.html` were kept "because those two URLs were public
+before the move" — but the move they referred to was the clean-URL move on the
+*old* domain. On `affordability-index.varadmore.me` those addresses have never
+existed, nothing links to them, and they are not in the sitemap. They preserved
+nothing, so they are deleted and a test now pins their absence: the tempting fix
+for a stray `.html` link is to add the alias back rather than correct the link.
+
+This forced a fix in `docs/portfolio-redirect/`. Its script had been forwarding
+the old path verbatim, which for `timing.html` would now land on a 404. It maps
+`.html` addresses onto the clean ones instead.
