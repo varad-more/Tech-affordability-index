@@ -673,8 +673,20 @@ test.describe('affordability index', () => {
     // elements at once — which is invisible until someone measures it, so it
     // gets measured here rather than trusted.
     const ratios = await page.evaluate(() => {
-      const cs = getComputedStyle(document.documentElement);
-      const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+      // Resolve through a probe element rather than reading the custom property
+      // directly. The declared value is now `light-dark(#a, #b)`, and
+      // `getPropertyValue` hands back that literal string — only the *computed*
+      // colour tells you which branch the current theme actually took.
+      const probe = document.createElement('span');
+      probe.style.display = 'none';
+      document.body.appendChild(probe);
+      const resolve = (value) => {
+        probe.style.color = '';
+        probe.style.color = value;
+        const rgb = getComputedStyle(probe).color.match(/[\d.]+/g).slice(0, 3).map(Number);
+        return rgb;
+      };
+
       const lum = (rgb) => {
         const [r, g, b] = rgb.map((v) => {
           v /= 255;
@@ -683,18 +695,19 @@ test.describe('affordability index', () => {
         return 0.2126 * r + 0.7152 * g + 0.0722 * b;
       };
       const ratio = (a, b) => {
-        const [x, y] = [lum(hex(a)), lum(hex(b))];
+        const [x, y] = [lum(resolve(a)), lum(resolve(b))];
         return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
       };
-      const tok = (n) => cs.getPropertyValue(n).trim();
+
       const out = {};
       for (const ink of ['--ink-muted', '--ink-2', '--link']) {
         for (const surface of ['--page', '--surface-1']) {
-          out[`${ink} on ${surface}`] = ratio(tok(ink), tok(surface));
+          out[`${ink} on ${surface}`] = ratio(`var(${ink})`, `var(${surface})`);
         }
       }
-      // White on the fill built for it.
-      out['white on --accent-solid'] = ratio('#ffffff', tok('--accent-solid'));
+      // White on the fill built to carry it.
+      out['white on --accent-solid'] = ratio('#ffffff', 'var(--accent-solid)');
+      probe.remove();
       return out;
     });
 

@@ -138,3 +138,38 @@ view, and there is a test named for it.
 run against the reverted code first — they catch 117px of letterboxing, 82px of
 unused column, and the transparent button — because a regression test that has
 never failed is not evidence of anything.
+
+---
+
+# Editorial redesign
+
+Direction chosen with the user: editorial, not technical or bold.
+
+- [x] **Fraunces, self-hosted.** One 67KB variable woff2 (wght 400-700, opsz
+      9-144, latin), committed under `assets/fonts/` with its OFL. Linking it
+      would have been the first third-party request the site has ever made, and
+      a typeface is not the thing to break that constraint for. Verified: one
+      same-origin request, `document.fonts.check` true, zero off-origin entries
+      in the resource timeline.
+- [x] **Warm ivory ground.** The page is text and thin marks on a large empty
+      field, so the field's temperature is most of the character it has. Ink
+      warmed to match; dark stepped to a brown-black rather than a blue-black so
+      the two themes read as one publication at different times of day.
+- [x] **One indigo family.** The interface accent and the data ramp used to be
+      two unrelated blues. The ramp was re-stepped and re-validated: monotone
+      lightness, adjacent ΔL, single hue at 5° spread all pass.
+- [x] **Palette declared once.** Three copies of every colour — a light block, a
+      `prefers-color-scheme` block and a `[data-theme]` block — collapsed into
+      `light-dark()`. The last two were byte-identical duplicates that had to be
+      edited in lockstep, and they had already drifted once.
+- [x] Display type on headlines, the wordmark and the figures; rules and a
+      numbered sequence for the steps; paint-order halos so value labels survive
+      crossing the threshold rule.
+
+## Verified
+
+131 unit + 38 browser tests. Contrast measured on every text node of all three
+pages in both themes: method and timing clean, index clean apart from heatmap
+cell text, which was checked separately against each cell's own fill (147 cells,
+0 under 4.5:1, both themes). Both fuzz sweeps clean. The contrast test caught a
+regression in the new palette before it shipped, which is what it is for.
