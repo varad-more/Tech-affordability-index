@@ -498,6 +498,122 @@ test.describe('affordability index', () => {
     }
   });
 
+  test('clearing the salary to retype it does not empty the page', async ({ page }) => {
+    await ready(page);
+    await expect(page.locator('#bars .bar-row')).toHaveCount(HUB_COUNT);
+
+    // Reported as the site "shutting down" when the salary was edited. Selecting
+    // the field and deleting it leaves `value === ''`, `Number('')` is 0, and a
+    // $0 salary makes every ratio undefined — so for the moment between deleting
+    // the old figure and typing the new one, every chart on the page emptied.
+    await page.locator('#base').fill('');
+    await expect(page.locator('#bars .bar-row')).toHaveCount(HUB_COUNT);
+    await expect(page.locator('#verdict')).toContainText('$156,000');
+
+    await page.locator('#base').fill('90000');
+    await expect(page.locator('#verdict')).toContainText('$90,000');
+  });
+
+  test('a salary of zero explains itself instead of drawing nothing', async ({ page }) => {
+    await ready(page);
+
+    // Zero is a real thing to type, unlike an empty box. The charts cannot plot
+    // a share of nothing, so they say so — an empty frame is indistinguishable
+    // from a chart that failed to load.
+    await page.locator('#base').fill('0');
+    await expect(page.locator('#bars .chart-empty')).toBeVisible();
+    await expect(page.locator('#bars .chart-empty')).toContainText(/take-home/i);
+
+    await page.locator('#base').fill('150000');
+    await expect(page.locator('#bars .bar-row')).toHaveCount(HUB_COUNT);
+    await expect(page.locator('#bars .chart-empty')).toHaveCount(0);
+  });
+
+  test('no input can drive a NaN into the drawing', async ({ page }) => {
+    await ready(page);
+
+    // `type="number"` accepts exponent notation, so the largest double is one
+    // paste away. It is finite, but twelve times it is not.
+    for (const value of ['1e999', '1.7976931348623157e308', '-5000', '0.5']) {
+      await page.locator('#base').evaluate((el, v) => {
+        el.value = v;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      }, value);
+
+      // Scoped to the charts the salary drives. Sweeping every `svg *` would
+      // also walk the basemap's 3,142 path outlines, whose `d` attributes are
+      // enormous and never change with an input — thirty seconds of scanning
+      // geometry that cannot be the thing under test.
+      const bad = await page.evaluate(() => {
+        const hits = [];
+        for (const mount of document.querySelectorAll('#bars, #ladder, #breakdown, #heatmap, #multiples')) {
+          for (const node of mount.querySelectorAll('svg *')) {
+            for (const attr of node.attributes) {
+              if (/NaN|Infinity/.test(attr.value)) hits.push(`${node.tagName}[${attr.name}]`);
+            }
+          }
+        }
+        return hits;
+      });
+      expect(bad, `base="${value}" produced ${bad.join(', ')}`).toEqual([]);
+    }
+  });
+
+  test('a part-typed salary does not hang the page', async ({ page }) => {
+    await ready(page);
+
+    // Typing "150000" into an empty field means the salary is briefly 1, then
+    // 15, then 150. Take-home is the denominator of the bar chart, so at $1 the
+    // ratio is astronomical — and the gridlines were drawn with a fixed `v +=
+    // 0.1` up to it, which queued millions of nodes and froze the tab for
+    // eleven seconds. This is the freeze that got reported as a crash.
+    for (const value of ['1', '15', '150', '150000']) {
+      const { ms, gridlines } = await page.locator('#base').evaluate((el, v) => {
+        el.value = v;
+        const started = performance.now();
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        return {
+          ms: performance.now() - started,
+          gridlines: document.querySelectorAll('#bars .tick-line').length,
+        };
+      }, value);
+
+      expect(gridlines, `base="${value}" drew ${gridlines} gridlines`).toBeLessThan(20);
+      expect(ms, `base="${value}" took ${Math.round(ms)}ms to render`).toBeLessThan(2000);
+    }
+
+    await expect(page.locator('#bars .bar-row')).toHaveCount(HUB_COUNT);
+  });
+
+  test('a tooltip does not outlive the mark it describes', async ({ page }) => {
+    await ready(page);
+
+    await page.locator('#bars .bar-row').first().hover();
+    await expect(page.locator('#tooltip')).toHaveClass(/\bon\b/);
+
+    // Redrawing removes the bar out from under the cursor, and `mouseleave`
+    // never fires for a node that is deleted rather than left.
+    await page.locator('#base').fill('99000');
+    await expect(page.locator('#tooltip')).not.toHaveClass(/\bon\b/);
+  });
+
+  test('the page still works when localStorage is unavailable', async ({ page }) => {
+    // Blocked cookies and some private modes throw on *access*, not just write.
+    // The stored theme read sat in the load path, so one throw took out the
+    // whole site rather than just the remembered preference.
+    await page.addInitScript(() => {
+      Object.defineProperty(window, 'localStorage', {
+        get() { throw new Error('localStorage is blocked'); },
+      });
+    });
+    await ready(page);
+
+    await expect(page.locator('.stat')).toHaveCount(4);
+    await expect(page.locator('#bars .bar-row')).toHaveCount(HUB_COUNT);
+    await page.locator('#theme-toggle').click();
+    await expect(page.locator('#bars .bar-row')).toHaveCount(HUB_COUNT);
+  });
+
   test('a chart box is the size of the chart, and fills its column', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await ready(page);
@@ -546,6 +662,45 @@ test.describe('affordability index', () => {
       await out.evaluate((b) => Number(getComputedStyle(b.querySelector('svg')).opacity)),
       'the icon should be the part that fades',
     ).toBeLessThan(1);
+  });
+
+  test('small text clears the WCAG AA contrast floor', async ({ page }) => {
+    await ready(page);
+
+    // These two tokens carry almost all the small text on the site: --ink-muted
+    // every eyebrow, field label, hint, table header and axis label, and --link
+    // every footnote. Both sat under 4.5:1 — --ink-muted at 3.41 across 56
+    // elements at once — which is invisible until someone measures it, so it
+    // gets measured here rather than trusted.
+    const ratios = await page.evaluate(() => {
+      const cs = getComputedStyle(document.documentElement);
+      const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+      const lum = (rgb) => {
+        const [r, g, b] = rgb.map((v) => {
+          v /= 255;
+          return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+        });
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      };
+      const ratio = (a, b) => {
+        const [x, y] = [lum(hex(a)), lum(hex(b))];
+        return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+      };
+      const tok = (n) => cs.getPropertyValue(n).trim();
+      const out = {};
+      for (const ink of ['--ink-muted', '--ink-2', '--link']) {
+        for (const surface of ['--page', '--surface-1']) {
+          out[`${ink} on ${surface}`] = ratio(tok(ink), tok(surface));
+        }
+      }
+      // White on the fill built for it.
+      out['white on --accent-solid'] = ratio('#ffffff', tok('--accent-solid'));
+      return out;
+    });
+
+    for (const [pair, value] of Object.entries(ratios)) {
+      expect(value, `${pair} is ${value.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
+    }
   });
 
   test('charts carry accessible names and a table alternative', async ({ page }) => {

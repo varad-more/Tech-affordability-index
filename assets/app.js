@@ -251,14 +251,32 @@ function writeInputs() {
 }
 
 function readInputs() {
+  // A number input happily accepts `1.7976931348623157e308`. That is finite, so
+  // it cleared the old guard, but multiplying it by twelve months is not — the
+  // Infinity propagated into ratios as NaN and Chrome started refusing rect
+  // widths. A billion is past every real salary and keeps the arithmetic finite.
+  const MAX_MONEY = 1e9;
+
   const num = (sel, fallback = 0) => {
     const v = Number($(sel).value);
-    return Number.isFinite(v) && v >= 0 ? v : fallback;
+    return Number.isFinite(v) && v >= 0 ? Math.min(v, MAX_MONEY) : fallback;
   };
+
+  // An empty box is someone midway through retyping, not someone earning zero.
+  // `Number('')` is 0, so reading it literally turned the moment between
+  // selecting "156000" and typing the first new digit into a $0 world: take-home
+  // zero, every ratio undefined, and every chart on the page emptied out. It
+  // came back on the next keystroke, but a page that guts itself while you type
+  // reads as a crash, and that is what it was reported as.
+  //
+  // Only the base salary holds its old value, because it is the only field where
+  // zero is not a real answer. An equity grant, a bonus and a haircut of nothing
+  // are all things people actually have, so those still read 0 when cleared.
+  const keepIfBlank = (sel, current) => ($(sel).value.trim() === '' ? current : num(sel));
 
   state.offer = {
     ...state.offer,
-    baseSalary: num('#base'),
+    baseSalary: keepIfBlank('#base', state.offer.baseSalary),
     rsuGrant: num('#grant'),
     bonuses: state.offer.bonuses.map((_, i) => (i === 0 ? num('#bonus') : state.offer.bonuses[i])),
     equityHaircut: Math.min(1, num('#haircut') / 100),
@@ -865,6 +883,16 @@ function renderBars() {
         <div class="t-row">${jurisdictionLabel(hub)}</div>`,
     }));
 
+  if (!rows.length) {
+    emptyChart(
+      $('#bars'),
+      'Rent as a share of take-home needs a take-home to divide by. Enter a base ' +
+        'salary above and every metro comes back.',
+    );
+    $('#bars-caption').textContent = '';
+    return;
+  }
+
   rankedBarChart($('#bars'), rows, {
     threshold: COST_BURDENED_THRESHOLD,
     thresholdLabel: '30% — cost-burdened (HUD)',
@@ -872,6 +900,21 @@ function renderBars() {
 
   $('#bars-caption').textContent =
     `${state.offer.label} · base salary ${money(state.offer.baseSalary)}`;
+}
+
+/**
+ * What a chart shows when it has nothing to draw.
+ *
+ * A zero or negative salary makes every ratio undefined, and the charts used to
+ * respond by rendering an empty box — no marks, no axis, no explanation, which
+ * looks exactly like a chart that failed to load. Saying why is both kinder and
+ * more honest than a blank rectangle.
+ */
+function emptyChart(mount, message) {
+  const p = document.createElement('p');
+  p.className = 'chart-empty';
+  p.textContent = message;
+  mount.replaceChildren(p);
 }
 
 function renderHeatmap() {
@@ -896,6 +939,12 @@ function renderHeatmap() {
     }),
   );
 
+  if (!cells.flat().some((c) => c.value !== null && c.value !== undefined)) {
+    emptyChart($('#heatmap'), 'No offer here has a positive take-home to measure rent against.');
+    $('#heatmap-legend').replaceChildren();
+    return;
+  }
+
   heatmap($('#heatmap'), {
     rowLabels: ordered.map((h) => h.city),
     colLabels: profiles.map((p) => ({ title: p.company, subtitle: p.short })),
@@ -918,6 +967,16 @@ function renderMultiples() {
   // One shared vertical scale across all panels, so the shapes are genuinely
   // comparable rather than each rescaled to its own range.
   const allRatios = results.flatMap(({ res }) => res.years.map((y) => y.ratio)).filter((r) => r !== null);
+
+  // With nothing to scale, `Math.max(...[])` is -Infinity and `Math.min(...[])`
+  // is +Infinity, so the domain inverts and every plotted point becomes NaN.
+  // Nothing threw — the paths just silently drew nowhere.
+  if (!allRatios.length) {
+    emptyChart(mount, 'Vesting only has a shape once there is a positive take-home to plot it against.');
+    $('#multiples-caption').textContent = '';
+    return;
+  }
+
   const span = Math.max(...allRatios) - Math.min(...allRatios);
   const pad = span === 0 ? 0.01 : span * 0.18;
   const domain = [Math.min(...allRatios) - pad, Math.max(...allRatios) + pad];

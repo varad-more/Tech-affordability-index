@@ -32,6 +32,20 @@ function tooltip() {
 }
 
 /**
+ * Clear a chart's mount, and dismiss any tooltip with it.
+ *
+ * A tooltip is anchored to a mark. Redrawing the chart destroys that mark, but
+ * the tooltip lives on `document.body` and survived — so hovering a bar and then
+ * editing the salary left a tooltip describing a bar that no longer existed,
+ * floating over the page until the next hover. `mouseleave` never fires for a
+ * node that is removed out from under the cursor.
+ */
+function clearMount(mount) {
+  mount.replaceChildren();
+  tooltipNode?.classList.remove('on');
+}
+
+/**
  * Attach a hover tooltip. The dataviz guidance treats this as default, not a
  * nicety: an HTML chart is interactive, so every mark should be interrogable.
  */
@@ -103,7 +117,7 @@ function frameWidth(mount, { min = 300, max = 1180, fallback = 880 } = {}) {
  * @param {Array<{ month: string, value: number|null }>} points
  */
 export function timeSeries(mount, points, { valueFormat = money } = {}) {
-  mount.replaceChildren();
+  clearMount(mount);
 
   const W = frameWidth(mount);
   const H = 260;
@@ -211,7 +225,7 @@ export function timeSeries(mount, points, { valueFormat = money } = {}) {
  *        values are signed fractions, e.g. -0.019 for 1.9% below average
  */
 export function divergingBars(mount, bars, { format = (v) => pct(v, 1), highlight } = {}) {
-  mount.replaceChildren();
+  clearMount(mount);
 
   const W = frameWidth(mount);
   const gap = 10;
@@ -302,7 +316,7 @@ export function divergingBars(mount, bars, { format = (v) => pct(v, 1), highligh
  * @param {Array} segments { label, value, color }
  */
 export function stackedBar(mount, segments, { total } = {}) {
-  mount.replaceChildren();
+  clearMount(mount);
 
   const W = frameWidth(mount);
   const H = 116;
@@ -390,7 +404,7 @@ export function stackedBar(mount, segments, { total } = {}) {
  * @param {object} colors  band id -> CSS colour value
  */
 export function salaryLadder(mount, { bands, salary, colors, bandLabel }) {
-  mount.replaceChildren();
+  clearMount(mount);
 
   const W = frameWidth(mount);
   const H = 104;
@@ -495,7 +509,7 @@ function barPath(x, y, w, h, r) {
  * single hue rather than redundantly re-encoding it.
  */
 export function rankedBarChart(mount, rows, { threshold, thresholdLabel, gutter } = {}) {
-  mount.replaceChildren();
+  clearMount(mount);
 
   const W = frameWidth(mount);
   // Metro names fit in 116px; "Barnstable County, MA" does not, and a clipped
@@ -519,11 +533,29 @@ export function rankedBarChart(mount, rows, { threshold, thresholdLabel, gutter 
     'aria-label': 'Share of monthly take-home pay spent on rent, by metro, ranked lowest to highest',
   });
 
-  // Gridlines every 10%, drawn behind the marks.
-  for (let v = 0; v <= maxValue; v += 0.1) {
+  // Gridlines behind the marks, at a step chosen from the range rather than
+  // fixed at 10%.
+  //
+  // A fixed step is only safe while the range is. Rent as a share of take-home
+  // is normally under 50%, but take-home is the denominator: a salary of $1 —
+  // which is what the field holds for one keystroke while someone types
+  // "150000" — makes the ratio astronomical, and `v += 0.1` up to it queued
+  // millions of gridlines. The page froze for eleven seconds building a DOM
+  // nobody would ever see. This keeps the count bounded whatever the data does.
+  const TARGET_TICKS = 8;
+  const magnitude = 10 ** Math.floor(Math.log10(Math.max(maxValue, 1e-6) / TARGET_TICKS));
+  const step =
+    [1, 2, 2.5, 5, 10].map((m) => m * magnitude).find((s) => maxValue / s <= TARGET_TICKS) ??
+    magnitude * 10;
+
+  for (let i = 0; i * step <= maxValue; i++) {
+    const v = i * step;
     const gx = gutterL + x(v);
     svg.appendChild(el('line', { x1: gx, y1: top - 8, x2: gx, y2: H - 16, class: 'tick-line' }));
-    svg.appendChild(el('text', { x: gx, y: top - 14, class: 'axis-label', 'text-anchor': 'middle' }, pct(v)));
+    svg.appendChild(
+      el('text', { x: gx, y: top - 14, class: 'axis-label', 'text-anchor': 'middle' },
+        pct(v, step < 0.01 ? 1 : 0)),
+    );
   }
 
   rows.forEach((row, i) => {
@@ -602,7 +634,7 @@ function inkFor(step) {
  * (the relief rule for ramp steps that sit under 3:1 against the surface).
  */
 export function heatmap(mount, { rowLabels, colLabels, cells }) {
-  mount.replaceChildren();
+  clearMount(mount);
 
   const gutterL = 116;
   const cellH = 26;
@@ -693,7 +725,7 @@ export function heatmap(mount, { rowLabels, colLabels, cells }) {
 
 /** Legend strip for the heatmap ramp. */
 export function rampLegend(mount, minLabel, maxLabel) {
-  mount.replaceChildren();
+  clearMount(mount);
   const wrap = document.createElement('div');
   wrap.className = 'legend';
 
@@ -723,7 +755,7 @@ export function rampLegend(mount, minLabel, maxLabel) {
  * are easier to compare side by side anyway.
  */
 export function sparkline(mount, points, { threshold, domain, formatPoint } = {}) {
-  mount.replaceChildren();
+  clearMount(mount);
 
   const W = 220;
   const H = 96;

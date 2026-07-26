@@ -6,7 +6,12 @@
   --surface-1:  #fcfcfb;
   --ink-1:      #0b0b0b;
   --ink-2:      #52514e;
-  --ink-muted:  #898781;
+  /* 4.90:1 on --page and 5.05:1 on --surface-1. This carries every eyebrow,
+     field label, hint, table header and axis label on the site — all of it
+     around 11px, so all of it owes 4.5:1. The previous #898781 was 3.41:1 and
+     failed on 56 elements at once. Still clearly lighter than --ink-2, which is
+     what keeps the hierarchy. */
+  --ink-muted:  #6f6d68;
   --grid:       #e1e0d9;
   --axis:       #c3c2b7;
   --border:     rgba(11, 11, 11, 0.10);
@@ -14,6 +19,16 @@
   /* Single-hue mark for bars and lines: passes every gate on this surface. */
   --accent:     #2a78d6;
   --accent-dim: #86b6ef;
+  /* The fill to put white text on. --accent itself is 4.46:1 under white here
+     and 3.64:1 in dark — both under 4.5 — so a filled control gets this instead
+     and --accent stays what it is: a mark colour, validated for marks. */
+  --accent-solid: #256abf;
+
+  /* Link text. --accent is a *mark* colour: 3:1 is the bar a bar has to clear,
+     and it does. As 12-13px link text it owes 4.5:1 and reaches only 4.19, which
+     put every footnote and every method-page contents link under the floor. In
+     dark --accent already clears it, so only light steps down. */
+  --link: #256abf;
 
   /* Sequential ramp — heatmap only, where color is the sole encoding. */
   --seq-1: #cde2fb;
@@ -72,6 +87,8 @@
 
     --accent:     #3987e5;
     --accent-dim: #1c5cab;
+    --accent-solid: #1c5cab;
+    --link: #3987e5;
 
     /* Inverted so "more" reads brighter against the dark surface. */
     --seq-1: #0d366b;
@@ -114,6 +131,8 @@
 
   --accent:     #3987e5;
   --accent-dim: #1c5cab;
+  --accent-solid: #1c5cab;
+  --link: #3987e5;
 
   --seq-1: #0d366b;
   --seq-2: #184f95;
@@ -514,8 +533,8 @@ h3 {
 }
 
 .presets button[aria-pressed="true"] {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--accent-solid);
+  border-color: var(--accent-solid);
   color: #fff;
   box-shadow: var(--shadow-1);
 }
@@ -779,6 +798,23 @@ svg text { font-family: var(--font); }
 }
 
 /* ---- small multiples ---- */
+
+/* Stands in for a chart that has nothing to draw. Sized like a chart so the
+   panel does not collapse and jump the page around as a value is retyped. */
+.chart-empty {
+  display: flex;
+  align-items: center;
+  min-height: 96px;
+  margin: 0;
+  padding: 18px 20px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: var(--page);
+  color: var(--ink-2);
+  font-size: 0.85rem;
+  line-height: 1.55;
+  max-width: 64ch;
+}
 
 .multiples {
   display: grid;
@@ -1164,7 +1200,7 @@ footer.notes {
 
 footer.notes h2 { font-size: 0.95rem; margin-bottom: 8px; }
 footer.notes li { margin-bottom: 7px; }
-footer.notes a { color: var(--accent); }
+footer.notes a { color: var(--link); }
 
 /* ---- method page ---- */
 
@@ -1222,7 +1258,7 @@ footer.notes a { color: var(--accent); }
 
 .prose li { color: var(--ink-2); line-height: 1.68; margin-bottom: 8px; }
 
-.prose a { color: var(--accent); }
+.prose a { color: var(--link); }
 
 .prose code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -1298,7 +1334,7 @@ table.facts.wide th { width: auto; }
 table.facts thead th { color: var(--ink-muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.04em; }
 
 .colophon { font-size: 0.78rem; color: var(--ink-muted); margin-top: 18px; }
-.colophon a { color: var(--ink-2); }
+footer.notes .colophon a { color: var(--ink-2); }
 
 td .swatch {
   display: inline-block;

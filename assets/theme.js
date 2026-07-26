@@ -24,7 +24,17 @@ function label(theme) {
  * @param {Function} [onChange] called after the theme flips, for chart redraws
  */
 export function initTheme(onChange) {
-  const stored = localStorage.getItem(KEY);
+  // Reading has to be guarded as well as writing. Blocked cookies and some
+  // private-browsing modes make `localStorage` throw on *access*, not just on
+  // write — and because this runs inside the page's load path, one throw here
+  // took the entire site down rather than just losing the stored preference.
+  let stored = null;
+  try {
+    stored = localStorage.getItem(KEY);
+  } catch {
+    // No stored preference available; fall back to the system setting.
+  }
+
   if (stored === 'dark' || stored === 'light') {
     document.documentElement.dataset.theme = stored;
   }
