@@ -32,6 +32,22 @@ function watchForErrors(page) {
   return errors;
 }
 
+/**
+ * Scroll a panel fully into view and wait for its entry fade to complete.
+ *
+ * Panels fade in on a scroll-driven view timeline, so one sitting at the bottom
+ * edge of the viewport is part-way through. The fade moves no geometry, so a
+ * coordinate read is safe either way — this exists so that what a test measures
+ * is the settled state rather than a frame of the transition.
+ */
+async function settled(page, selector) {
+  await page.locator(selector).scrollIntoViewIfNeeded();
+  await page.waitForFunction((sel) => {
+    const panel = document.querySelector(sel)?.closest('section.panel');
+    return !panel || Number(getComputedStyle(panel).opacity) === 1;
+  }, selector);
+}
+
 /** The app is hidden behind a loading panel until every dataset has arrived. */
 async function ready(page) {
   await page.goto('/');
@@ -306,6 +322,7 @@ test.describe('affordability index', () => {
     await page.locator('#map .map-btn[data-act="in"]').click();
     const anchored = await transform();
 
+    await settled(page, '#map .map-svg');
     const frame = await page.locator('#map .map-svg').boundingBox();
     const cx = frame.x + frame.width / 2;
     const cy = frame.y + frame.height / 2;
@@ -339,6 +356,7 @@ test.describe('affordability index', () => {
 
     // Landing zoomed-in but somewhere else is worse than not zooming at all, so
     // the selected county has to end up near the middle of the frame.
+    await settled(page, '#map .map-svg');
     const outline = await page.locator('#map .map-selected').boundingBox();
     const frame = await page.locator('#map .map-svg').boundingBox();
     const dx = outline.x + outline.width / 2 - (frame.x + frame.width / 2);
@@ -926,6 +944,75 @@ test.describe('affordability index', () => {
     await expect(page.locator('.combo-row .combo-name').first()).toContainText('Travis');
   });
 
+  test('the timing page gets the same picker, filtered by state', async ({ page }) => {
+    const errors = watchForErrors(page);
+    await page.goto('/timing.html');
+    await expect(page.locator('#seasonal svg')).toBeVisible({ timeout: 30_000 });
+
+    // It opens on San Francisco, somewhere a reader has an intuition about,
+    // rather than on whatever sorts first.
+    await expect(page.locator('#county-picker')).toHaveValue('San Francisco County, CA');
+
+    const input = page.locator('#county-picker');
+    await input.click();
+    await expect(page.locator('#county-listbox')).toBeVisible();
+
+    // The right-hand figure is this page's subject, not the explore page's: how
+    // big the seasonal swing is, and "no pattern" where there is too little
+    // history. That is the whole reason a row is worth reading before clicking.
+    const swings = await page.locator('.combo-row .combo-rent').allTextContents();
+    expect(swings.length).toBeGreaterThan(0);
+    for (const s of swings) expect(s).toMatch(/^(\d+\.\d%|no pattern)$/);
+
+    await page.locator('#state-picker').selectOption('RI');
+    await expect(page.locator('#state-hint')).toContainText('Rhode Island');
+    const states = await page.locator('.combo-row .combo-st').allTextContents();
+    expect(states.length).toBeGreaterThan(0);
+    expect(new Set(states)).toEqual(new Set(['RI']));
+
+    // And picking one still drives the charts, which is the point of the control.
+    const before = await page.locator('#seasonal-caption').textContent();
+    await page.locator('.combo-row').first().click();
+    await expect(page.locator('#seasonal-caption')).not.toHaveText(before);
+
+    expect(errors).toEqual([]);
+  });
+
+  /**
+   * Em dashes were swept out of the site's copy deliberately: they are the
+   * single loudest tell that a machine wrote a sentence, and every one of them
+   * had a comma, a colon or a full stop that read better. This asserts the
+   * *rendered* text, not the source, because most of this copy is built in JS.
+   */
+  test('no page shows an em dash in its copy', async ({ page }) => {
+    const dashes = (loc) =>
+      loc.evaluate(() => {
+        const out = [];
+        const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+          if (n.nodeValue.includes('—')) out.push(n.nodeValue.trim().slice(0, 100));
+        }
+        return out;
+      });
+
+    for (const path of ['/', '/timing.html', '/method.html']) {
+      await page.goto(path);
+      await expect(page.locator('#loading')).toBeHidden({ timeout: 30_000 });
+      await page.evaluate(() => {
+        for (const d of document.querySelectorAll('details')) d.open = true;
+      });
+      expect(await dashes(page.locator('body')), `em dash in ${path}`).toEqual([]);
+    }
+
+    // The states the copy only reaches on demand: a preset with no source, an
+    // empty search, and a tooltip.
+    await ready(page);
+    await page.locator('.presets button').last().click();
+    await page.locator('#county-picker').fill('zzzz');
+    await page.locator('#bars .bar-row').first().hover();
+    expect(await dashes(page.locator('body'))).toEqual([]);
+  });
+
   test('every page ends with the same footer, and it names its sources', async ({ page }) => {
     for (const path of ['/', '/timing.html', '/method.html']) {
       await page.goto(path);
@@ -945,6 +1032,162 @@ test.describe('affordability index', () => {
       // the markup, so a stale month cannot be baked into three pages at once.
       await expect(footer.locator('#footer-freshness')).toContainText(/\d{4}/);
     }
+  });
+
+  test('the paper grain cannot push any text under the contrast floor', async ({ page }) => {
+    await ready(page);
+
+    // The grain is a flat ink laid over every pixel on the page, so it does not
+    // darken text against its background — it composites over *both* and
+    // compresses the ratio between them. Nothing in the stylesheet says which
+    // pairs that endangers, and the token audit below cannot see it at all,
+    // because it reads declared colours rather than rendered ones.
+    //
+    // This measures every text node on the page against its composited
+    // background, then re-measures with the grain applied at FULL alpha. The
+    // real mask averages about half that, so a pass here is conservative.
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((t) => { document.documentElement.dataset.theme = t; }, theme);
+
+      // Let the recalc settle before reading anything back. `light-dark()`
+      // resolves at used-value time, and after a `color-scheme` flip Chromium
+      // does not refresh every consumer promptly — anchors lagged a palette
+      // behind for longer than two animation frames, which reported eighteen
+      // contrast failures that do not exist on screen. Clicking the real toggle
+      // and waiting produces the correct colours, so this is the measurement
+      // settling, not the page being wrong.
+      await page.waitForTimeout(400);
+
+      const failures = await page.evaluate(() => {
+        const probe = document.createElement('span');
+        probe.style.display = 'none';
+        document.body.appendChild(probe);
+
+        const norm = (v) => {
+          probe.style.color = '';
+          probe.style.color = v;
+          const c = getComputedStyle(probe).color;
+          const m = c.match(/[\d.]+/g).map(Number);
+          // `color-mix()` computes to `color(srgb r g b / a)` with channels in
+          // 0-1, and round-tripping through `color` does not normalise it. Read
+          // as 0-255 that is near-black, which reports the perfectly legible nav
+          // as failing at 1.10:1 — a false alarm that costs more than the check.
+          const scale = c.startsWith('color(') ? 255 : 1;
+          return { rgb: m.slice(0, 3).map((x) => x * scale), a: m.length > 3 ? m[3] : 1 };
+        };
+
+        const lum = ([r, g, b]) => {
+          const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+          return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+        };
+        const ratio = (a, b) => {
+          const [x, y] = [lum(a), lum(b)];
+          return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+        };
+        const over = (dst, src, a) => dst.map((v, i) => (1 - a) * v + a * src[i]);
+
+        const grain = norm(getComputedStyle(document.documentElement).getPropertyValue('--grain-ink'));
+        const pageBg = norm(getComputedStyle(document.body).backgroundColor).rgb;
+
+        // Flatten the background stack to one opaque colour: the nav and several
+        // tints are semi-transparent, and taking the first non-zero layer would
+        // compare text against a colour nothing is actually drawn on.
+        const bgOf = (el) => {
+          const layers = [];
+          for (let n = el; n; n = n.parentElement) {
+            const c = norm(getComputedStyle(n).backgroundColor);
+            if (c.a > 0) layers.push(c);
+            if (c.a === 1) break;
+          }
+          let out = layers.length && layers.at(-1).a === 1 ? layers.pop().rgb : pageBg;
+          for (const l of layers.reverse()) out = out.map((v, i) => (1 - l.a) * v + l.a * l.rgb[i]);
+          return out;
+        };
+
+        const bad = [];
+        for (const el of document.querySelectorAll('body *')) {
+          // SVG marks are held to 3:1 as graphics and are checked against their
+          // own fills elsewhere; this pass is about HTML text.
+          if (el.closest('svg')) continue;
+          const own = [...el.childNodes]
+            .filter((n) => n.nodeType === Node.TEXT_NODE)
+            .map((n) => n.textContent.trim())
+            .join('');
+          if (!own) continue;
+
+          const cs = getComputedStyle(el);
+          if (cs.visibility === 'hidden' || !el.getClientRects().length) continue;
+
+          const size = parseFloat(cs.fontSize);
+          const weight = Number(cs.fontWeight) || 400;
+          const need = size >= 24 || (size >= 18.66 && weight >= 700) ? 3 : 4.5;
+
+          const after = ratio(
+            over(norm(cs.color).rgb, grain.rgb, grain.a),
+            over(bgOf(el), grain.rgb, grain.a),
+          );
+          if (after < need) {
+            bad.push(`${after.toFixed(2)}:1 (need ${need}) ${size}px "${own.slice(0, 30)}"`);
+          }
+        }
+        probe.remove();
+        return bad;
+      });
+
+      expect(failures, `contrast failures in ${theme} once the grain is composited`).toEqual([]);
+    }
+
+    await page.evaluate(() => { delete document.documentElement.dataset.theme; });
+  });
+
+  test('no panel can get stuck invisible, however it is reached', async ({ page }) => {
+    await ready(page);
+
+    // Panels rise into place on a scroll-driven view timeline. The failure mode
+    // that matters is not a missing animation, it is a panel that never reaches
+    // the end of one and stays at opacity 0 — a blank page that still returns
+    // 200 and still passes every other test here.
+    const opacities = () =>
+      page.$$eval('section.panel', (els) => els.map((el) => Number(getComputedStyle(el).opacity)));
+
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForTimeout(500);
+    expect(
+      (await opacities()).every((o) => o === 1),
+      'a panel was still transparent after scrolling past it',
+    ).toBe(true);
+
+    // Opacity only, deliberately: a panel is up to a thousand pixels of map and
+    // chart, and translating it would move a target out from under a pointer
+    // already reaching for it.
+    const moved = await page.$$eval('section.panel', (els) =>
+      els.map((el) => getComputedStyle(el).transform).filter((t) => t !== 'none'));
+    expect(moved, 'a panel is being translated by its entry animation').toEqual([]);
+
+    // Print has no scroll at all, so the timeline never advances: without the
+    // print rule every panel but the first comes out of the printer blank.
+    await page.emulateMedia({ media: 'print' });
+    expect(
+      (await opacities()).every((o) => o === 1),
+      'a panel would print blank',
+    ).toBe(true);
+    await page.emulateMedia({ media: 'screen' });
+  });
+
+  test('reduced motion turns the scroll animation off entirely', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await ready(page);
+
+    // Not "animates faster" — off. Every panel is fully present from the start,
+    // with no animation attached to fail to finish.
+    const state = await page.$$eval('section.panel', (els) =>
+      els.map((el) => ({
+        opacity: Number(getComputedStyle(el).opacity),
+        animation: getComputedStyle(el).animationName,
+      })));
+
+    expect(state.every((s) => s.opacity === 1)).toBe(true);
+    expect(state.every((s) => s.animation === 'none')).toBe(true);
   });
 
   test('the math section renders as maths and matches the engine', async ({ page }) => {

@@ -36,7 +36,7 @@ const SOURCE = {
   homepage: 'https://www.zillow.com/research/data/',
   metric: 'Smoothed asking rent, all home types (SFR + condo + multifamily), county level',
   coverage:
-    'Counties with sufficient listing volume for a stable index — about 1,360 of ~3,140. Counties without an observation are shown as "no rent data" rather than estimated.',
+    'Counties with sufficient listing volume for a stable index, about 1,360 of ~3,140. Counties without an observation are shown as "no rent data" rather than estimated.',
 };
 
 /** RegionID, SizeRank, RegionName, RegionType, StateName, State, Metro, StateCodeFIPS, MunicipalCodeFIPS */

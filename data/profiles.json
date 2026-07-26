@@ -1,11 +1,11 @@
 {
-  "note": "Entry-level offers for engineers starting out — the audience this project is for. Figures are US national medians, so they are a starting point you overwrite with your own numbers, not a prediction of what any one team will offer you.",
+  "note": "Entry-level offers for engineers starting out, the audience this project is for. Figures are US national medians, so they are a starting point you overwrite with your own numbers, not a prediction of what any one team will offer you.",
   "source": {
     "name": "Levels.fyi, median reported packages by company and level",
     "url": "https://www.levels.fyi/",
     "asOf": "2026-07-25"
   },
-  "locationCaveat": "These are national medians. Real packages are location-adjusted: the same level is commonly 15-25% lower in a tier-3 metro than in the Bay Area or New York. No authoritative per-metro table is published, and this project will not invent one, so the salary field is editable — put your actual offer in it.",
+  "locationCaveat": "These are national medians. Real packages are location-adjusted: the same level is commonly 15-25% lower in a tier-3 metro than in the Bay Area or New York. No authoritative per-metro table is published, and this project will not invent one, so the salary field is editable. Put your actual offer in it.",
   "derivation": "baseSalary and the bonus total come from Levels.fyi directly. rsuGrant is its annualised stock figure multiplied by four, which is the grant it is derived from. The vesting and bonus SHAPE is each company's published schedule; where a company front-loads cash to offset a back-loaded vest, the totals still reconcile to Levels.fyi.",
   "equityHaircutRationale": "Unvested equity is not cash. Public-company RSUs are discounted for price risk between grant and vest; illiquid private equity is discounted to zero because you cannot pay rent with it.",
   "profiles": [
@@ -43,7 +43,7 @@
       "vesting": [0.05, 0.15, 0.4, 0.4],
       "bonuses": [21000, 14000, 0, 0],
       "equityHaircut": 0.85,
-      "vestingNote": "Back-loaded 5/15/40/40, with sign-on cash bridging the first two years. Starts well below Google and finishes above it — but years three and four are almost all stock, so that gain rides on the share price."
+      "vestingNote": "Back-loaded 5/15/40/40, with sign-on cash bridging the first two years. Starts well below Google and finishes above it, but years three and four are almost all stock, so that gain rides on the share price."
     },
     {
       "id": "apple-ict2",

@@ -88,7 +88,7 @@ export function combobox(input, opts) {
       // Not an option: it is a count, and arrowing onto a row you cannot pick
       // is a dead end. `role="presentation"` keeps it out of the option set.
       more.setAttribute('role', 'presentation');
-      more.textContent = `${(all.length - items.length).toLocaleString()} more — keep typing to narrow`;
+      more.textContent = `${(all.length - items.length).toLocaleString()} more. Keep typing to narrow.`;
       frag.appendChild(more);
     }
 

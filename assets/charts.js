@@ -479,7 +479,7 @@ export function salaryLadder(mount, { bands, salary, colors, bandLabel }) {
     el(
       'text',
       { x: sx, y: barY - 17, class: 'ladder-marker-label', 'text-anchor': anchor },
-      `${money(salary)} — ${bandLabel}`,
+      `${money(salary)} · ${bandLabel}`,
     ),
   );
 

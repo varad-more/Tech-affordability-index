@@ -53,13 +53,13 @@ export const BANDS = [
     id: 'getting-by',
     label: 'Getting by',
     maxNeedsShare: 0.7,
-    description: 'Necessities under 70% of take-home — room to save.',
+    description: 'Necessities under 70% of take-home, with room to save.',
   },
   {
     id: 'comfortable',
     label: 'Comfortable',
     maxNeedsShare: 0.5,
-    description: 'Necessities under half of take-home — full 50/30/20 headroom.',
+    description: 'Necessities under half of take-home, the full 50/30/20 headroom.',
   },
 ];
 
@@ -93,7 +93,7 @@ export const NEEDS_SHARE_CLASSES = [
   { max: 0.4, label: '32-40%' },
   { max: 0.5, label: '40-50%' },
   { max: 0.7, label: '50-70%', note: 'past the 50/30/20 comfortable line' },
-  { max: 1.0, label: '70-100%', note: 'past the 70/20/10 line — little left to save' },
+  { max: 1.0, label: '70-100%', note: 'past the 70/20/10 line, little left to save' },
   { max: Infinity, label: 'over 100%', note: 'necessities exceed take-home' },
 ];
 

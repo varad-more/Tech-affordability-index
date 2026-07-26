@@ -43,7 +43,7 @@ const VINTAGE = '2023';
 
 const SOURCE = {
   name: 'US Census Bureau, American Community Survey 5-year estimates',
-  table: 'B25031 — Median Gross Rent by Bedrooms',
+  table: 'B25031, Median Gross Rent by Bedrooms',
   url: `https://www2.census.gov/programs-surveys/acs/summary_file/${VINTAGE}/table-based-SF/data/5YRData/acsdt5y${VINTAGE}-b25031.dat`,
   homepage: 'https://www.census.gov/programs-surveys/acs',
   metric:

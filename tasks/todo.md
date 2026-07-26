@@ -241,3 +241,56 @@ built as a pseudo-element bleeding past the measure with negative `vw` insets.
 layout test measures — and it is a real horizontal scrollbar in any browser
 without `clip`. It is a background layer on `body` instead, which can overflow
 nothing.
+
+## Modern pass: texture, motion, and a bigger display voice
+
+- [x] **Paper grain over the whole page.** An inline SVG turbulence filter used
+      as a *mask* over a flat ink, not as an image — which is what lets its
+      colour come from a `light-dark()` token and follow the theme, with no
+      texture file to serve and no third-party request.
+- [x] **Display type went up a step.** The headline is now
+      `clamp(2.5rem, 5.8vw, 4.15rem)` at optical size 144 with tighter tracking,
+      and the stat numerals at opsz 72. A probe of the shipped subset confirmed
+      it exposes `opsz` and `wght` only — the `"SOFT" 0` in the old h1 rule was
+      naming an axis that is not in the file and did nothing.
+- [x] **The verdict looks like an answer.** It was typeset as one more paragraph
+      with a coloured edge; it now takes the band colour as a wash across the
+      block, a heavier chip and a step of type.
+- [x] **Read-progress hairline** on the nav and **panel fades** on entry, both on
+      scroll/view timelines — no scroll listener, no observer, no JS.
+- [x] Scrollbars, `::selection`, panel and tile hover elevation, chip press
+      states, `text-wrap: balance` on headings.
+
+## Verified
+
+131 unit + 47 browser tests, and the whole suite run three times over
+(`--repeat-each=3`, 144/144) because the new work is timing-sensitive.
+
+Three things the measurements changed:
+
+- **The grain compresses every contrast ratio on the site**, because it
+  composites over text and background alike rather than darkening one against
+  the other. Nothing in the stylesheet says which pairs that endangers, and the
+  token audit cannot see it at all — it reads declared colours, not rendered
+  ones. Measured across all 964 text nodes on three pages in both themes with
+  the grain at *full* alpha (the mask averages about half): 0 failures, tightest
+  4.76:1 against a 4.5 floor. Now a test.
+- **The panel entry animation translated 26px, and that was wrong.** A panel is
+  up to a thousand pixels of map and chart, and sliding it moves a target out
+  from under a pointer already reaching for it. It also made every test that
+  drives the mouse by coordinate racy — the same defect wearing a lab coat.
+  Opacity only now, asserted by a test that fails if a transform reappears.
+- **Print has no scroll**, so a view timeline never advances and every panel
+  below the first would have come out of the printer blank.
+
+Two false alarms worth recording, both in the measuring rather than the page:
+
+- `color-mix()` computes to `color(srgb r g b / a)` with channels in 0-1, and
+  round-tripping through the `color` property does not normalise it. Read as
+  0-255 that is near-black, which reported the perfectly legible nav as failing
+  at 1.10:1.
+- After a `color-scheme` flip, Chromium does not refresh every `light-dark()`
+  consumer promptly — anchors lagged a palette behind for longer than two
+  animation frames, reporting eighteen contrast failures that do not exist.
+  Clicking the real toggle and waiting gives the correct colours, so the page is
+  fine and the measurement needed to settle.

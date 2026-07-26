@@ -119,7 +119,7 @@ export function parseLivingWage(html, label) {
   if (Math.abs(componentSum - expenses[REQUIRED_ROW]) > 12) {
     throw new Error(
       `${label}: components sum to $${componentSum} but the table states ` +
-        `$${expenses[REQUIRED_ROW]} — column alignment is wrong`,
+        `$${expenses[REQUIRED_ROW]}, so column alignment is wrong`,
     );
   }
 

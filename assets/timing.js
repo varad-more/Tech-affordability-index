@@ -12,18 +12,20 @@ import {
 import {
   timeSeries, divergingBars, rankedBarChart, pct, money,
 } from './charts.js';
+import { countyPicker, indexCounty } from './county-picker.js';
 import { initTheme } from './theme.js';
 import { initFooter } from './footer.js';
 
 const $ = (sel) => document.querySelector(sel);
 
-/** King County, WA — a strong, clean seasonal pattern to land on. */
-const DEFAULT_COUNTY = '53033';
+/** San Francisco County, CA. Somewhere most readers have an intuition about. */
+const DEFAULT_COUNTY = '06075';
 
 const state = {
   data: null,
   counties: null,
   countyList: null,
+  picker: null,
   selected: DEFAULT_COUNTY,
 };
 
@@ -31,10 +33,12 @@ async function load() {
   const data = await fetch('data/rent-history.json').then((r) => r.json());
 
   state.data = data;
-  state.counties = new Map(data.counties.map((c) => [c.fips, c]));
-  state.countyList = [...state.counties.values()]
-    .map((c) => ({ ...c, label: `${c.name}, ${c.st}` }))
-    .sort((a, b) => a.label.localeCompare(b.label));
+  // `state` is the postal code everywhere else on the site; the history file
+  // calls it `st`. Renaming it here keeps the picker working on one shape.
+  state.counties = new Map(
+    data.counties.map((c) => [c.fips, indexCounty({ ...c, state: c.st })]),
+  );
+  state.countyList = [...state.counties.values()].sort((a, b) => a.label.localeCompare(b.label));
 
   // Land on a county that actually has a pattern to show.
   if (!state.counties.get(state.selected)?.season) {
@@ -42,8 +46,7 @@ async function load() {
   }
 
   renderMasthead();
-  renderPicker();
-  bindInputs();
+  buildCountyPicker();
   initTheme();
   initFooter();
 
@@ -68,7 +71,6 @@ async function load() {
 }
 
 const selected = () => state.counties.get(state.selected);
-const labelFor = (c) => `${c.name}, ${c.st}`;
 
 function renderMasthead() {
   const { lastMonth, countyCount, meaningfulCount, source } = state.data;
@@ -82,25 +84,40 @@ function renderMasthead() {
     `worth planning around · ${source.name.split(',')[0]}`;
 }
 
-function renderPicker() {
-  const list = $('#county-options');
-  list.replaceChildren();
-  for (const county of state.countyList) {
-    const o = document.createElement('option');
-    o.value = county.label;
-    list.appendChild(o);
-  }
-  $('#county-picker').value = labelFor(selected());
+/**
+ * The picker is the one in county-picker.js, the same control the explore page
+ * uses. What is local here is the number on a row: this page is about the size
+ * of the seasonal swing, so that is what a county is worth previewing by.
+ * Counties with too little history say so in the list rather than after they
+ * have been chosen.
+ */
+function buildCountyPicker() {
+  state.picker = countyPicker({
+    counties: state.countyList,
+    input: $('#county-picker'),
+    listbox: $('#county-listbox'),
+    toggle: $('#county-toggle'),
+    status: $('#county-status'),
+    stateSelect: $('#state-picker'),
+    stateHint: $('#state-hint'),
+    idleHint: 'Narrow the list, or search every county with history.',
+    selected: () => selected(),
+    onSelect: (fips) => selectCounty(fips),
+    meta: (county) =>
+      county.season
+        ? { text: pct(county.amplitude, 1) }
+        : { text: 'no pattern', muted: true },
+  });
 }
 
-function bindInputs() {
-  $('#county-picker').addEventListener('change', (e) => {
-    const match = state.countyList.find((c) => c.label === e.target.value);
-    if (match) {
-      state.selected = match.fips;
-      renderAll();
-    }
-  });
+function selectCounty(fips) {
+  if (!state.counties.has(fips) || fips === state.selected) {
+    // Even a no-op has to put the label back: the box may be holding a query.
+    state.picker.sync();
+    return;
+  }
+  state.selected = fips;
+  renderAll();
 }
 
 /* ---------------------------------------------------------------- render */
@@ -110,7 +127,7 @@ function renderVerdict() {
   const verdict = $('#verdict');
 
   $('#county-hint').textContent = county.metro ? `${county.metro} metro` : '';
-  $('#county-picker').value = labelFor(county);
+  state.picker.sync();
 
   if (!county.season) {
     verdict.className = 'verdict';
@@ -135,7 +152,7 @@ function renderVerdict() {
     `<div class="verdict-text">${
       strong
         ? `In ${county.name}, <strong>${MONTH_NAMES[county.cheapest]}</strong> is typically the ` +
-          `cheapest month to sign and <strong>${MONTH_NAMES[county.dearest]}</strong> the dearest — ` +
+          `cheapest month to sign and <strong>${MONTH_NAMES[county.dearest]}</strong> the dearest, ` +
           `a swing of ${pct(county.amplitude, 1)}, or about ${money(saving.monthly)} a month.`
         : `${county.name} has almost no seasonal pattern: only ${pct(county.amplitude, 1)} between ` +
           `its cheapest and dearest months, which is too small to plan around.`
@@ -235,7 +252,7 @@ function renderHistory() {
 
     $('#history-caption').textContent =
       `${county.name} · ${money(first.value)} in ${first.label} to ${money(last.value)} in ` +
-      `${last.label} — ${change >= 0 ? 'up' : 'down'} ${pct(Math.abs(change), 1)} over ` +
+      `${last.label}, ${change >= 0 ? 'up' : 'down'} ${pct(Math.abs(change), 1)} over ` +
       `${Math.round(historyMonths / 12)} years, against a seasonal swing of ` +
       `${county.season ? pct(county.amplitude, 1) : 'n/a'}.`;
   }
@@ -271,5 +288,5 @@ function renderAll() {
 load().catch((err) => {
   $('#loading').innerHTML =
     `<strong>Could not load rent history.</strong> ${err.message}. If you opened this file ` +
-    `directly, serve it over HTTP instead — run <code>npm run serve</code>.`;
+    `directly, serve it over HTTP instead: run <code>npm run serve</code>.`;
 });

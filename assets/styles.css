@@ -126,8 +126,19 @@
   --font: system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-display: "Fraunces", ui-serif, Georgia, "Times New Roman", serif;
 
+  /* Paper grain. Held as an ink rather than an opacity so it can go through
+     `light-dark()` like every other value here — the noise is applied as a mask
+     over this colour, not as an image with its own alpha. A dark ground needs
+     slightly more of it, because grain reads as light specks on dark and as
+     shadow on light, and the eye forgives the second more readily. */
+  --grain-ink: light-dark(rgba(23, 21, 15, 0.055), rgba(250, 247, 240, 0.055));
+
+  /* Text selection. Tinted from the accent so a dragged selection belongs to the
+     page; kept pale enough that --ink-1 on top of it still clears 4.5:1. */
+  --selection: light-dark(#c9d6f7, #33468f);
+
   --radius: 10px;
-  --radius-lg: 14px;
+  --radius-lg: 18px;
 }
 
 /* `light-dark()` resolves off the used colour scheme, so the toggle sets the
@@ -136,6 +147,59 @@
 :root[data-theme="dark"]  { color-scheme: dark; }
 
 * { box-sizing: border-box; }
+
+::selection { background: var(--selection); color: var(--ink-1); }
+
+/* The scrollbar is furniture, and default furniture on a warm ground reads as a
+   grey strip glued to the side of the page. Firefox takes the two-keyword form;
+   Chromium and Safari take the pseudo-elements. Both are given the same colours
+   rather than one being left to the platform. */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--axis) transparent;
+}
+
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+::-webkit-scrollbar-thumb {
+  background: var(--axis);
+  border-radius: 99px;
+  /* A transparent border with background-clip is the only way to inset a
+     scrollbar thumb; padding does nothing to it. */
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover { background: var(--ink-muted); background-clip: content-box; }
+
+/* Paper grain over the whole page.
+ *
+ * The noise is an inline SVG turbulence filter used as a *mask* over a flat
+ * ink, not as an image in its own right — which is what lets its colour come
+ * from a token and follow the theme, and keeps the whole thing to one
+ * same-origin-free data URI rather than a texture file to serve.
+ *
+ * It sits above everything, including the open county list, because grain that
+ * stops at a popup's edge announces itself as a layer. `pointer-events: none`
+ * keeps it out of every hit test on the page. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+  background: var(--grain-ink);
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+  mask-size: 140px 140px;
+}
+
+/* Long headings break where the line runs out, which routinely leaves one word
+   alone on the last line of a display-size title. `balance` costs nothing on
+   the short lines these are and fixes exactly that; `pretty` does the weaker
+   job of preventing a single-word last line in running text. */
+h1, h2, h3, .verdict-lead { text-wrap: balance; }
+p, li, .sub, .hint { text-wrap: pretty; }
 
 /* A class that sets `display` beats the UA stylesheet's `[hidden] { display: none }`,
    so hiding the loading panel needs to win explicitly. */
@@ -217,6 +281,34 @@ body {
   background: color-mix(in srgb, var(--page) 88%, transparent);
   backdrop-filter: saturate(1.6) blur(10px);
   border-bottom: 1px solid var(--border);
+}
+
+/* Read-progress hairline along the bottom of the nav, driven by a scroll
+   timeline — no JS, no scroll listener, and nothing to throttle. It rides the
+   border the nav already has rather than adding a bar of its own.
+
+   Gated on `@supports` because the fallback for an unsupported
+   `animation-timeline` is an animation that runs on *time* — a progress line
+   that fills itself over 0.3s while the page sits still, which is worse than
+   no line at all. */
+@supports (animation-timeline: scroll()) {
+  .topnav::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent), var(--div-warm));
+    transform-origin: 0 50%;
+    scale: 0 1;
+    animation: read-progress linear both;
+    animation-timeline: scroll(root block);
+  }
+}
+
+@keyframes read-progress {
+  to { scale: 1 1; }
 }
 
 .topnav-inner {
@@ -351,11 +443,16 @@ h1 {
   /* Fraunces exposes optical size as an axis. Set high, the display cut has
      finer hairlines and tighter spacing, which is what makes a large headline
      look drawn rather than scaled up from body text. */
-  font-variation-settings: "opsz" 120, "SOFT" 0;
-  font-size: clamp(2.2rem, 4.6vw, 3.35rem);
-  line-height: 1.05;
-  margin: 0 0 14px;
-  letter-spacing: -0.021em;
+  /* The subset ships two axes, opsz and wght — SOFT and WONK are not in it, so
+     a declaration naming them does nothing. Optical size at the top of its range
+     is where the display cut lives: finer hairlines, tighter fitting, and the
+     high-contrast thick/thin that makes a headline look drawn rather than
+     enlarged. */
+  font-variation-settings: "opsz" 144;
+  font-size: clamp(2.5rem, 5.8vw, 4.15rem);
+  line-height: 1.02;
+  margin: 0 0 16px;
+  letter-spacing: -0.028em;
   font-weight: 600;
 }
 
@@ -445,8 +542,57 @@ section.panel {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-1);
-  padding: 34px 36px;
-  margin-top: 26px;
+  padding: 38px 40px;
+  margin-top: 30px;
+  transition: box-shadow 200ms ease, border-color 200ms ease;
+}
+
+/* A panel is not a button and must not pretend to be one, so it lifts by light
+   rather than by moving: the shadow deepens, nothing translates. Moving the
+   whole panel under the cursor would drag a chart out from under a tooltip. */
+section.panel:hover {
+  box-shadow: var(--shadow-2);
+  border-color: var(--rule);
+}
+
+/* Panels fade in as they enter the viewport, on a view timeline — no observer,
+   no scroll handler, no JS at all.
+ *
+ * Opacity only. An earlier version also translated the panel 26px, which looks
+ * better in isolation and is wrong here: a panel is up to a thousand pixels of
+ * map and chart, and sliding it while someone is reaching for it moves the
+ * target out from under the pointer. It also made every test that drives the
+ * mouse by coordinate racy, which is the same defect wearing a lab coat —
+ * geometry that is still moving when it is read.
+ *
+ * Both guards are load-bearing. Without `@supports`, a browser lacking view
+ * timelines runs the same keyframes on a *time* timeline: every panel fades in
+ * once on load and the ones below the fold are invisible until then. Without
+ * the motion query, it animates for people who have asked the system not to.
+ * `both` holds the end state, so a panel already on screen at load is simply
+ * finished rather than waiting to be scrolled to. */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    section.panel {
+      animation: panel-rise linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 34%;
+    }
+  }
+}
+
+@keyframes panel-rise {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Paper does not scroll, so a view timeline never advances and every panel
+   below the first would print blank. The grain goes too — it is a texture for
+   a screen, and on a printer it is a page of speckles. */
+@media print {
+  section.panel { animation: none; opacity: 1; }
+  body::after { display: none; }
+  .topnav::after { display: none; }
 }
 
 /* The folio numeral a printed piece would set in the corner of a section
@@ -575,13 +721,25 @@ h3 {
   font-size: 0.85rem;
   color: var(--ink-2);
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease,
+    transform 140ms ease, box-shadow 140ms ease;
 }
 
+/* A chip is a control and may move under the cursor — unlike a panel, there is
+   nothing inside it to drag out from under a pointer. Held to 1px: enough to
+   register as pressable, not enough to reflow the row. */
 .presets button:hover {
   color: var(--ink-1);
   border-color: var(--axis);
   background: var(--surface-1);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-1);
+}
+
+.presets button:active { transform: none; box-shadow: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .presets button:hover { transform: none; }
 }
 
 .presets button[aria-pressed="true"] {
@@ -884,8 +1042,14 @@ h3 {
   background: var(--page);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 16px 16px 16px 17px;
+  padding: 18px 18px 18px 19px;
   overflow: hidden;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.stat:hover {
+  border-color: var(--rule);
+  box-shadow: var(--shadow-1);
 }
 
 /* The last tile flips between "Left over" and "Short by", which is the only place
@@ -922,11 +1086,11 @@ h3 {
 
 .stat .value {
   font-family: var(--font-display);
-  font-variation-settings: "opsz" 36;
+  font-variation-settings: "opsz" 72;
   font-weight: 600;
-  font-size: 1.94rem;
-  line-height: 1.08;
-  letter-spacing: -0.015em;
+  font-size: 2.2rem;
+  line-height: 1.05;
+  letter-spacing: -0.022em;
   /* Tiles sit in a row and are read down the column as much as across it, so the
      digits have to line up. */
   font-variant-numeric: tabular-nums;
@@ -1306,6 +1470,13 @@ svg text { font-family: var(--font); }
    over and each control gets a full row. */
 @media (min-width: 860px) {
   .picker-row { grid-template-columns: 0.8fr 1.5fr 0.85fr 0.85fr; }
+  /* The timing page asks only the first two of those questions. Stretched across
+     the full width they would read as a form with fields missing, so the pair
+     keeps its proportions and stops. */
+  .picker-row-two {
+    grid-template-columns: 0.8fr 1.5fr;
+    max-width: 560px;
+  }
 }
 
 /* The verdict is the answer to the question in the headline, so it gets the band
@@ -1313,18 +1484,30 @@ svg text { font-family: var(--font); }
    A 14px swatch used to carry the band; a chip carrying the band's *name* says
    the same thing in words, which survives both colourblindness and a screenshot
    pasted into a chat. */
+/* This is the answer the page exists to give, and it used to be typeset as one
+   more paragraph with a coloured edge. It now gets the band colour as a wash
+   across the whole block and a step of display type, so the eye lands on it
+   before it lands on the charts underneath.
+
+   The wash is 9% of the band mixed into the page, which is a tint rather than a
+   fill: --ink-1 on top of it still clears the 4.5:1 floor in both themes, which
+   a saturated band colour behind text would not. */
 .verdict {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   flex-wrap: wrap;
-  gap: 6px 12px;
-  padding: 16px 18px;
+  gap: 10px 16px;
+  padding: 20px 22px;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--page);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(
+      100deg,
+      color-mix(in oklab, var(--band, var(--border)) 9%, var(--page)) 0%,
+      var(--page) 78%);
   box-shadow: inset 4px 0 0 var(--band, var(--border));
-  font-size: 0.95rem;
-  line-height: 1.55;
+  font-size: 1.02rem;
+  line-height: 1.5;
 }
 
 .verdict-chip {
@@ -1332,11 +1515,12 @@ svg text { font-family: var(--font); }
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 3px 11px 4px;
+  padding: 5px 14px 6px;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--surface-1);
-  font-size: 0.8rem;
+  box-shadow: var(--shadow-1);
+  font-size: 0.86rem;
   font-weight: 640;
   letter-spacing: -0.005em;
   color: var(--ink-1);
@@ -1353,7 +1537,7 @@ svg text { font-family: var(--font); }
   box-shadow: 0 0 0 1px var(--border) inset;
 }
 
-.verdict-text { flex: 1 1 16ch; min-width: 0; }
+.verdict-text { flex: 1 1 18ch; min-width: 0; }
 
 .ladder-tick { stroke: var(--ink-1); stroke-width: 1; opacity: 0.45; }
 

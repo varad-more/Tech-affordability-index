@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>When to move — Tech Affordability Index</title>
+  <title>When to move · Tech Affordability Index</title>
   <meta name="description" content="How rent moves through the calendar year in any US county, and what timing a lease is actually worth.">
   <link rel="stylesheet" href="assets/styles.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>🏙️</text></svg>">
@@ -31,8 +31,8 @@
     <p class="tagline">
       Rent is not flat across the year. Summer is moving season, so demand and asking
       rents peak; winter is when landlords have empty units and less leverage. This
-      measures how large that swing actually is where you are looking — and whether it
-      is big enough to be worth planning around.
+      measures how large that swing actually is where you are looking, and whether it is
+      big enough to be worth planning around.
     </p>
     <div class="freshness" id="freshness"></div>
   </header>
@@ -44,13 +44,30 @@
   <main id="app" hidden>
 
   <section class="panel">
-    <div class="picker-row">
+    <div class="picker-row picker-row-two">
       <div class="field">
+        <label for="state-picker">State</label>
+        <div class="select-wrap">
+          <select id="state-picker"></select>
+        </div>
+        <div class="hint" id="state-hint"></div>
+      </div>
+
+      <div class="field field-county">
         <label for="county-picker">County</label>
-        <input id="county-picker" list="county-options" autocomplete="off"
-               placeholder="Start typing a county or state…">
-        <datalist id="county-options"></datalist>
+        <div class="combo">
+          <input id="county-picker" type="text" role="combobox"
+                 aria-expanded="false" aria-controls="county-listbox"
+                 aria-autocomplete="list" aria-haspopup="listbox"
+                 autocomplete="off" autocapitalize="off" autocorrect="off"
+                 spellcheck="false" placeholder="Search counties…">
+          <button type="button" id="county-toggle" class="combo-toggle"
+                  tabindex="-1" aria-label="Show the county list"></button>
+          <ul id="county-listbox" class="combo-list" role="listbox"
+              aria-label="Counties" hidden></ul>
+        </div>
         <div class="hint" id="county-hint"></div>
+        <p id="county-status" class="sr-only" role="status" aria-live="polite"></p>
       </div>
     </div>
 
@@ -79,8 +96,8 @@
     <h2>The last six years</h2>
     <p class="sub">
       Actual monthly rent, not seasonally adjusted. The seasonal wiggle above rides on
-      top of this trend — and in most places the trend is much larger than the wiggle,
-      which is the honest headline of this page.
+      top of this trend, and in most places the trend is much larger than the wiggle.
+      That is the honest headline of this page.
     </p>
     <div class="chart-scroll"><div id="history"></div></div>
     <p class="sub" id="history-caption" style="margin-top:8px"></p>
@@ -90,7 +107,7 @@
     <h2>Where timing matters most</h2>
     <p class="sub">
       Counties with the largest swing between their cheapest and dearest month. A big
-      swing usually means a market dominated by one moving season — a university town, or
+      swing usually means a market dominated by one moving season: a university town, or
       somewhere with a short summer.
     </p>
     <div class="chart-scroll"><div id="leaderboard"></div></div>
@@ -203,7 +220,7 @@
         <a href="https://github.com/varad-more/Tech-affordability-index/blob/main/LICENSE">MIT licence</a>
       </p>
       <p class="footer-boast">
-        No trackers, no cookies, no analytics, no third-party requests — the typeface
+        No trackers, no cookies, no analytics, no third-party requests. The typeface
         and the map ship from this repository.
       </p>
     </div>

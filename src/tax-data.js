@@ -76,7 +76,7 @@ export const PAYROLL_MODELLED_STATES = ['CA', 'WA'];
 export const PAYROLL_COVERAGE_NOTE =
   'State paid-leave and disability payroll levies are modelled for California and Washington only. ' +
   'Roughly a dozen other states run employee-funded programmes of about 0.3-0.7% of wages, which are ' +
-  'not included — take-home in those states is overstated slightly.';
+  'not included, so take-home in those states is overstated slightly.';
 
 /**
  * Per-state rules.

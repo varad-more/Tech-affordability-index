@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Tech Affordability Index — what salary a US county actually needs</title>
+  <title>Tech Affordability Index: what salary a US county actually needs</title>
   <meta name="description" content="What salary you need to survive and to live comfortably in any US county, computed against take-home pay from current rent data and current-year tax law.">
   <link rel="stylesheet" href="assets/styles.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>🏙️</text></svg>">
@@ -32,9 +32,9 @@
     <h1>What salary does this place actually need?</h1>
     <p class="tagline">
       Cost-of-living calculators go stale and quietly compare gross salaries. This one
-      works out what a county costs to live in — rent <em>plus</em> everything else — and
-      the salary that clears it, against <strong>take-home pay</strong> after federal,
-      state, city and payroll tax.
+      works out what a county costs to live in, rent <em>plus</em> everything else, and
+      the salary that clears it. All of it against <strong>take-home pay</strong>, after
+      federal, state, city and payroll tax.
     </p>
     <div class="freshness" id="freshness"></div>
   </header>
@@ -103,10 +103,10 @@
     <h2>Where this salary lands</h2>
     <p class="sub">
       <strong>Survival</strong> is the salary at which take-home exactly covers
-      necessities — MIT's living wage budget, which contains no savings and no
+      necessities. That is MIT's living wage budget, which contains no savings and no
       discretionary spending. <strong>Comfortable</strong> is the salary at which those
-      necessities fit inside half your take-home, leaving the 30% and 20% of the 50/30/20
-      rule for everything else.
+      same necessities fit inside half your take-home, leaving the 30% and the 20% of the
+      50/30/20 rule for everything else.
     </p>
 
     <div class="picker-row">
@@ -166,10 +166,9 @@
     <div class="subsection">
       <h3>Where the money actually goes</h3>
       <p class="sub">
-        The monthly cost of one adult living here, broken out. Rent is measured;
-        everything else is MIT's county-level budget for a single adult — a
-        <em>subsistence</em> standard, so it holds no savings, no holidays and no meals
-        out.
+        The monthly cost of one adult living here, broken out. Rent is measured.
+        Everything else is MIT's county-level budget for a single adult, which is a
+        <em>subsistence</em> standard: no savings, no holidays, no meals out.
       </p>
       <div class="chart-scroll"><div id="breakdown"></div></div>
       <div class="chart-scroll"><table id="breakdown-table"></table></div>
@@ -195,8 +194,8 @@
     <h2>Rent as a share of monthly take-home</h2>
     <p class="sub">
       The 21 largest tech hubs, at metro level, on Zillow's current asking rents. Base
-      salary only — no equity, no bonus. This is the number that decides whether you can
-      make rent every month, and the one a total-comp figure flatters most. The dashed
+      salary only, so no equity and no bonus. This is the number that decides whether you
+      can make rent every month, and the one a total-comp figure flatters most. The dashed
       line is HUD's 30% cost-burdened threshold.
     </p>
     <div class="chart-scroll"><div id="bars"></div></div>
@@ -212,7 +211,7 @@
     <h2>Every hub against every offer</h2>
     <p class="sub">
       Year-1 share of take-home, counting bonus and vested equity. Rows follow the ranking
-      above. This is a snapshot of year one only, and the ordering does not hold — the
+      above. This is a snapshot of year one only, and the ordering does not hold: the
       vesting shapes below pull the packages apart over four years.
     </p>
     <div class="chart-scroll"><div id="heatmap"></div></div>
@@ -223,7 +222,7 @@
     <h2>How it changes as equity vests</h2>
     <p class="sub">
       The same offer across four years in one metro. Vesting shape matters as much as the
-      headline total — a front-loaded grant decays as it vests, so whichever offer looks
+      headline total. A front-loaded grant decays as it vests, so whichever offer looks
       best in year one need not still be ahead in year four.
     </p>
 
@@ -250,7 +249,7 @@
       </li>
       <li>
         <strong>Everything except rent</strong> is MIT's county-level budget for one adult
-        with no children — a subsistence standard, not a comfortable one.
+        with no children. It is a subsistence standard, not a comfortable one.
       </li>
       <li>
         <strong>Local income tax is modelled for two cities only</strong>, New York City
@@ -258,14 +257,14 @@
       </li>
       <li>
         <strong>Compensation is not location-adjusted</strong>, and the presets are
-        national medians — edit the salary field to your actual offer.
+        national medians. Edit the salary field to your actual offer.
       </li>
       <li>
         <strong>Single filer, standard deduction, county-level geography.</strong> Your
         real number will differ.
       </li>
       <li>
-        <a href="method.html"><strong>Read the full method →</strong></a> — every source,
+        <a href="method.html"><strong>Read the full method →</strong></a> Every source,
         formula, assumption and known limitation, including the ones that make this
         wrong.
       </li>
@@ -340,7 +339,7 @@
         <a href="https://github.com/varad-more/Tech-affordability-index/blob/main/LICENSE">MIT licence</a>
       </p>
       <p class="footer-boast">
-        No trackers, no cookies, no analytics, no third-party requests — the typeface
+        No trackers, no cookies, no analytics, no third-party requests. The typeface
         and the map ship from this repository.
       </p>
     </div>
