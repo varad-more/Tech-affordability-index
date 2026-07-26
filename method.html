@@ -298,6 +298,26 @@
       fixtures generated from d3-geo are committed so the test suite keeps pinning it.
     </p>
 
+    <h3>Zoom, and why the borders are simplified per arc</h3>
+    <p>
+      The map zooms to 32× with the scroll wheel, a pinch, the buttons, or the plus and
+      minus keys, and one button frames whichever county is selected. All of it is a
+      single transform on one group — at 3,142 shapes, anything that touches per-path
+      geometry on a wheel event is a slideshow rather than a map.
+    </p>
+    <p>
+      Zooming exposed a flaw that had been invisible at full extent. Boundaries are
+      simplified with Douglas-Peucker to keep the committed file small, and an earlier
+      build simplified each finished county ring. Two neighbouring counties share the
+      border between them, so that border was being approximated twice, from different
+      vertex neighbourhoods, and the two polygons stopped agreeing on where it ran. At 1×
+      the disagreement was sub-pixel. Zoomed in it opened into a white sliver between every
+      pair of counties. Simplification now runs on the shared <em>arc</em> — the thing
+      TopoJSON stores shared arcs for in the first place — so both counties are guaranteed
+      the identical vertex list rather than merely a very similar one. The file grew about
+      10%, which is what the correctness costs.
+    </p>
+
     <h3>County names</h3>
     <p>
       Boundary files carry a bare name — "King", "Orleans" — so the official name comes
@@ -407,6 +427,24 @@ index[m]  = mean of ratio[i] for every i falling in calendar month m
       front-loaded 33/33/22/12, Amazon's back-loaded 5/15/40/40 with sign-on cash bridging
       the early years, even quarterly vesting elsewhere. Where a company front-loads cash
       to offset a back-loaded vest, the four-year totals still reconcile to Levels.fyi.
+    </p>
+
+    <h3>"Other", and why it is not in the data file</h3>
+    <p>
+      The <strong>Other</strong> chip is an offer that is nobody's published package. It
+      deliberately does not live in <code>data/profiles.json</code>: every row in that file
+      carries a source and a date, and a number you typed has neither, so mixing the two
+      would quietly weaken the guarantee the rest of the file makes.
+    </p>
+    <p>
+      Choosing it keeps whatever is already in the fields, because adjusting from a real
+      anchor beats retyping four numbers from zero. What it does replace is the vesting
+      shape — a preset's schedule belongs to that company, and once the package is yours
+      there is nothing left to justify assuming it, so the four-year view falls back to
+      even quarters. Typing over a preset's numbers switches you to Other automatically,
+      but <em>keeps</em> the schedule you started from and says so, rather than reshaping
+      the curve underneath you. Either way your offer joins the comparison grid and the
+      vesting panels alongside the sourced ones.
     </p>
 
     <h3>The headline uses base salary only</h3>

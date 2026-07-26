@@ -123,6 +123,39 @@
    so hiding the loading panel needs to win explicitly. */
 [hidden] { display: none !important; }
 
+/* One focus treatment for everything, so no control can end up reachable by
+   keyboard but invisible once reached. `:focus-visible` keeps it off mouse
+   clicks, where a persistent ring reads as a stuck state. */
+:where(a, button, summary, input, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.skip-link {
+  position: absolute;
+  left: 8px;
+  top: -60px;
+  z-index: 60;
+  padding: 9px 14px;
+  border-radius: 8px;
+  background: var(--surface-1);
+  color: var(--ink-1);
+  border: 1px solid var(--border);
+  font-size: 0.85rem;
+  text-decoration: none;
+  transition: top 120ms ease;
+}
+
+.skip-link:focus { top: 8px; }
+
+/* Transitions only. Animations are left to their own rules, because the loading
+   spinner is slowed rather than stopped — a loading indicator that does not move
+   reads as a hung page, which is a worse outcome than a slow rotation. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 1ms !important; }
+}
+
 body {
   margin: 0;
   background: var(--page);
@@ -359,15 +392,35 @@ h3 {
 
 /* ---- controls ---- */
 
+.control-group { margin-bottom: 20px; }
+
+.control-label {
+  display: block;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.control-note {
+  margin: 9px 0 0;
+  font-size: 0.78rem;
+  color: var(--ink-muted);
+  line-height: 1.5;
+  max-width: 70ch;
+}
+
 .presets {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
-  margin-bottom: 16px;
 }
 
 .presets button {
-  background: transparent;
+  background: var(--page);
   border: 1px solid var(--border);
   border-radius: 999px;
   padding: 7px 14px;
@@ -375,6 +428,7 @@ h3 {
   font-size: 0.85rem;
   color: var(--ink-2);
   cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
 }
 
 .presets button:hover { color: var(--ink-1); border-color: var(--axis); }
@@ -384,6 +438,20 @@ h3 {
   border-color: var(--accent);
   color: #fff;
 }
+
+/* "Other" is not one more company — it is the row's escape hatch. A hairline
+   separates it so the sourced presets read as a closed set. */
+.preset-sep {
+  width: 1px;
+  align-self: stretch;
+  min-height: 20px;
+  background: var(--border);
+  margin: 0 2px;
+}
+
+.presets .preset-custom { border-style: dashed; }
+
+.presets .preset-custom[aria-pressed="true"] { border-style: solid; }
 
 .fields {
   display: grid;
@@ -418,6 +486,15 @@ h3 {
   outline-offset: 1px;
 }
 
+/* A disabled control must look disabled. Unit size switches off on the Zillow
+   basis, which publishes no bedroom split, and a greyed-out label alone is easy
+   to read as "empty" rather than "not applicable here". */
+.field select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: var(--surface-1);
+}
+
 .field .hint {
   font-size: 0.72rem;
   color: var(--ink-muted);
@@ -433,8 +510,11 @@ h3 {
   margin-top: 24px;
 }
 
+/* Tiles sit inside a panel that is already --surface-1, so they take --page:
+   a nested card on the same fill as its container is a border with nothing
+   behind it. Same reasoning as .verdict and .callout. */
 .stat {
-  background: var(--surface-1);
+  background: var(--page);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 16px;
@@ -567,13 +647,34 @@ svg text { font-family: var(--font); }
 
 /* ---- map ---- */
 
+/* The frame is the positioning context for the controls and the status strip,
+   both of which sit over the map rather than beside it — a map that gives up a
+   column of its width to a button rail is a smaller map. */
+.map-frame {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--page);
+  overflow: hidden;
+}
+
 .map-svg {
-  /* Below this the county shapes stop being distinguishable, so the map scrolls
-     inside .chart-scroll rather than shrinking into an unreadable smear. */
-  min-width: 640px;
+  /* No min-width, and no horizontal scroller around it: zoom replaced both. On a
+     phone the whole country is small, and the answer is to zoom into a region
+     rather than to make the reader drag a 640px canvas sideways.
+     `height: auto` keeps the aspect ratio exact, which is what lets pointer
+     coordinates map into viewBox units by plain proportion — letterboxing would
+     silently offset every zoom-at-cursor. */
   width: 100%;
   height: auto;
+  display: block;
+  /* Vertical page scrolling still belongs to the browser; horizontal drag and
+     pinch belong to the map. */
+  touch-action: pan-y;
 }
+
+.map-frame.is-panning .map-svg,
+.map-frame.is-panning .map-county { cursor: grabbing; }
 
 .map-county {
   stroke: var(--map-hairline);
@@ -583,6 +684,94 @@ svg text { font-family: var(--font); }
 }
 
 .map-county:hover { stroke: var(--ink-1); stroke-width: 1.2; }
+
+/* ---- map controls ---- */
+
+.map-controls {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 2;
+}
+
+.map-btn-group {
+  display: flex;
+  flex-direction: column;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
+}
+
+.map-btn-group .map-btn { border-radius: 0; box-shadow: none; }
+.map-btn-group .map-btn + .map-btn { border-top: 1px solid var(--border); }
+
+.map-btn {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--ink-2);
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
+  transition: color 120ms ease, background 120ms ease;
+}
+
+.map-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.map-btn:hover:not(:disabled) { color: var(--ink-1); background: var(--page); }
+
+/* Disabled has to stay legible. Faded to the point of invisibility, the zoom-out
+   button at 1x reads as a control that failed to render rather than one with
+   nothing left to do. */
+.map-btn:disabled { opacity: 0.45; cursor: default; }
+
+.map-status {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-1) 92%, transparent);
+  border: 1px solid var(--border);
+  font-size: 0.72rem;
+  color: var(--ink-muted);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.map-zoom-level {
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* On a phone the controls sit over New England, so their footprint is worth
+   shrinking: smaller targets still clear the 24px minimum, and the gesture hint
+   goes entirely because the buttons already say the same thing. */
+@media (max-width: 560px) {
+  .map-hint { display: none; }
+  .map-controls { gap: 6px; }
+  .map-btn { width: 26px; height: 26px; }
+  .map-btn svg { width: 14px; height: 14px; }
+}
 
 /* State outlines are a stroked overlay only — they must never swallow a hover
    aimed at the county underneath. */
@@ -647,16 +836,20 @@ svg text { font-family: var(--font); }
   margin-bottom: 18px;
 }
 
+/* The verdict is the answer to the question in the headline, so it gets the
+   band colour twice — once as the swatch, once as a rule down the edge — and a
+   step more type than the prose around it. */
 .verdict {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 14px 16px;
+  gap: 11px;
+  padding: 15px 17px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--page);
-  font-size: 0.92rem;
-  line-height: 1.45;
+  box-shadow: inset 3px 0 0 var(--band, var(--border));
+  font-size: 0.95rem;
+  line-height: 1.5;
 }
 
 .verdict-swatch {
@@ -727,7 +920,17 @@ details.table-view summary {
   cursor: pointer;
   font-size: 0.85rem;
   color: var(--ink-2);
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--page);
+  width: fit-content;
+  list-style-position: inside;
 }
+
+details.table-view summary:hover { color: var(--ink-1); border-color: var(--axis); }
+
+details.table-view[open] summary { margin-bottom: 4px; }
 
 table {
   width: 100%;
@@ -892,4 +1095,28 @@ td .swatch {
   clip: rect(0 0 0 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* ---- narrow screens ---- */
+
+/* Panel padding is the largest single source of wasted width on a phone: at 24px
+   a side, a 390px screen spends a quarter of itself on gutters. Everything here
+   buys horizontal room back; nothing changes the layout's structure. */
+@media (max-width: 560px) {
+  .wrap { padding: 20px 14px 56px; }
+
+  section.panel { padding: 18px 15px; margin-top: 16px; }
+
+  .hero { padding: 18px 0 2px; }
+
+  .stats { gap: 10px; margin-top: 18px; }
+  .stat { padding: 13px; }
+  .stat .value { font-size: 1.5rem; }
+
+  .verdict { padding: 13px 14px; font-size: 0.9rem; }
+
+  .fields { gap: 12px; }
+
+  .map-controls { top: 8px; right: 8px; }
+  .map-status { left: 8px; bottom: 8px; }
 }

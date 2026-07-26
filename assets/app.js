@@ -63,6 +63,23 @@ const UNIT_SIZES = [
   { key: 'all', label: 'All sizes' },
 ];
 
+/**
+ * The "Other" job — an offer that is nobody's published package.
+ *
+ * It deliberately does not live in data/profiles.json. Every row in that file
+ * carries a source and a date, and a number the reader typed has neither; mixing
+ * the two would quietly weaken the guarantee the rest of the file makes.
+ *
+ * Choosing it keeps whatever is currently in the fields, because starting from a
+ * real anchor and adjusting beats retyping four numbers from zero. What it does
+ * replace is the vesting shape: a preset's schedule is that company's, and once
+ * the package is yours there is nothing left to justify assuming it.
+ */
+const CUSTOM_ID = 'custom';
+const EVEN_VESTING = [0.25, 0.25, 0.25, 0.25];
+const CUSTOM_VESTING_NOTE =
+  'Equity vests in even quarters, the neutral assumption when no schedule is known.';
+
 const state = {
   rents: null,
   profiles: null,
@@ -152,8 +169,20 @@ async function load() {
 /* --------------------------------------------------------------- profile */
 
 function selectProfile(id) {
-  const p = state.profiles.profiles.find((x) => x.id === id);
   state.activeProfileId = id;
+
+  if (id === CUSTOM_ID) {
+    state.offer = {
+      ...state.offer,
+      vesting: [...EVEN_VESTING],
+      label: 'Your offer',
+      vestingNote: CUSTOM_VESTING_NOTE,
+    };
+    writeInputs();
+    return;
+  }
+
+  const p = state.profiles.profiles.find((x) => x.id === id);
   state.offer = {
     baseSalary: p.baseSalary,
     rsuGrant: p.rsuGrant,
@@ -165,6 +194,27 @@ function selectProfile(id) {
   };
   writeInputs();
 }
+
+/** The active offer as a profile row, so it can sit beside the sourced ones. */
+const customEntry = () => ({
+  ...state.offer,
+  id: CUSTOM_ID,
+  company: 'Your offer',
+  short: 'custom',
+  title: 'Your own numbers',
+});
+
+/**
+ * Profiles to compare against, which includes yours once you have one.
+ *
+ * The custom offer joins the grid and the vesting panels only when it is
+ * actually selected. Before that it holds a copy of whichever preset was last
+ * loaded, and showing a duplicate column labelled "Your offer" would be noise.
+ */
+const comparableProfiles = () =>
+  state.activeProfileId === CUSTOM_ID
+    ? [...state.profiles.profiles, customEntry()]
+    : state.profiles.profiles;
 
 function writeInputs() {
   $('#base').value = Math.round(state.offer.baseSalary);
@@ -203,6 +253,9 @@ function bindInputs() {
       state.selectedCounty = match.fips;
       renderCountyPanel();
       paintMap();
+      // Picking a county while zoomed into another part of the country would
+      // otherwise outline something off-screen, which reads as a failed click.
+      state.map.revealCounty(match.fips);
     }
   });
 
@@ -226,11 +279,18 @@ function bindInputs() {
 }
 
 function markCustom() {
-  state.activeProfileId = 'custom';
+  if (state.activeProfileId !== CUSTOM_ID) {
+    // Typing over a preset's numbers makes the package yours, but the vesting
+    // shape you started from is still the one being modelled. Say so, rather
+    // than silently reshaping the four-year curve under the reader.
+    const from = state.profiles.profiles.find((p) => p.id === state.activeProfileId);
+    state.offer.vestingNote = from
+      ? `${from.vestingNote} Kept from the ${from.company} preset you started from.`
+      : CUSTOM_VESTING_NOTE;
+    state.activeProfileId = CUSTOM_ID;
+  }
   state.offer.label = 'Your offer';
-  document.querySelectorAll('.presets button').forEach((b) => {
-    b.setAttribute('aria-pressed', String(b.dataset.id === 'custom'));
-  });
+  syncPresets();
 }
 
 /* ----------------------------------------------------------------- model */
@@ -345,21 +405,60 @@ function renderPresets() {
   const mount = $('#presets');
   mount.replaceChildren();
 
-  for (const p of state.profiles.profiles) {
+  const chip = (id, text, title, className = '') => {
     const b = document.createElement('button');
     b.type = 'button';
-    b.dataset.id = p.id;
-    b.textContent = `${p.company} ${p.short}`;
-    b.setAttribute('aria-pressed', String(p.id === state.activeProfileId));
+    b.dataset.id = id;
+    b.textContent = text;
+    if (title) b.title = title;
+    if (className) b.className = className;
     b.addEventListener('click', () => {
-      selectProfile(p.id);
-      document.querySelectorAll('.presets button').forEach((x) => {
-        x.setAttribute('aria-pressed', String(x.dataset.id === p.id));
-      });
+      selectProfile(id);
+      syncPresets();
       renderAll();
     });
     mount.appendChild(b);
+  };
+
+  for (const p of state.profiles.profiles) chip(p.id, `${p.company} ${p.short}`, p.title);
+
+  const sep = document.createElement('span');
+  sep.className = 'preset-sep';
+  sep.setAttribute('aria-hidden', 'true');
+  mount.appendChild(sep);
+
+  chip(
+    CUSTOM_ID,
+    'Other',
+    'Your own numbers, starting from whatever is currently in the fields',
+    'preset-custom',
+  );
+
+  syncPresets();
+}
+
+const monthLabel = (iso) =>
+  new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-US', {
+    month: 'long', year: 'numeric', timeZone: 'UTC',
+  });
+
+/** Light up the active chip and say, in one line, what it means. */
+function syncPresets() {
+  document.querySelectorAll('.presets button').forEach((b) => {
+    b.setAttribute('aria-pressed', String(b.dataset.id === state.activeProfileId));
+  });
+
+  const note = $('#preset-note');
+  if (state.activeProfileId === CUSTOM_ID) {
+    note.textContent = `Your own numbers — nothing here is sourced. ${state.offer.vestingNote}`;
+    return;
   }
+
+  const p = state.profiles.profiles.find((x) => x.id === state.activeProfileId);
+  const src = state.profiles.source;
+  note.textContent =
+    `${p.title} · US national median, Levels.fyi, ${monthLabel(src.asOf)}. ` +
+    `Overwrite any field — or pick Other — to make it your own.`;
 }
 
 /** Unit size only exists on the Census basis; Zillow publishes no bedroom split. */
@@ -431,6 +530,7 @@ function renderCountyPanel() {
     const hasOther = county[RENT_BASIS[other].key] !== null;
 
     $('#verdict').className = 'verdict';
+    $('#verdict').style.setProperty('--band', 'var(--map-nodata)');
     $('#verdict').innerHTML =
       `<span class="verdict-swatch" style="background:var(--map-nodata)"></span>` +
       `<div>No ${basis().short} rent figure is published for ${county.name}.` +
@@ -456,6 +556,9 @@ function renderCountyPanel() {
 
   const verdict = $('#verdict');
   verdict.className = `verdict band-${band.id}`;
+  // The band colour rides an inset rule down the edge as well as the swatch, so
+  // the verdict reads as an answer rather than as one more paragraph.
+  verdict.style.setProperty('--band', `var(${BAND_STEP[band.id]})`);
   verdict.innerHTML =
     `<span class="verdict-swatch" style="background:var(${BAND_STEP[band.id]})"></span>` +
     `<div><strong>${band.label}</strong> in ${county.name} on ${money(state.offer.baseSalary)} base. ` +
@@ -617,9 +720,25 @@ function buildMap() {
       if (!fips) return hideTooltip();
       showCountyTooltip(fips, event);
     },
+    // The map owns the zoom; the app owns which county is selected.
+    onLocate: () => state.selectedCounty,
   });
+}
 
-  rampLegendFor($('#map-legend'), NEEDS_SHARE_CLASSES);
+/**
+ * The no-data wording depends on which source is silent, so the legend is
+ * rebuilt when the basis changes — and only then, because painting the map runs
+ * on every keystroke in the salary field.
+ */
+let legendBasis = null;
+function syncMapLegend() {
+  if (legendBasis === state.rentBasis) return;
+  legendBasis = state.rentBasis;
+  rampLegendFor(
+    $('#map-legend'),
+    NEEDS_SHARE_CLASSES,
+    `${basis().short} publishes no rent figure for this county.`,
+  );
 }
 
 let tooltipEl;
@@ -675,13 +794,15 @@ function showCountyTooltip(fips, event) {
 function paintMap() {
   const { steps, bandCounts, withRent } = paintDataForCounties();
   state.map.paint(steps, state.selectedCounty);
+  syncMapLegend();
 
   const comfortable = bandCounts.comfortable ?? 0;
   const strained = (bandCounts.survival ?? 0) + (bandCounts['below-survival'] ?? 0);
 
   $('#map-intro').textContent =
     `Every US county, shaded by what share of take-home rent and necessities consume. ` +
-    `Click any county to select it. Rent here is ${basis().label}` +
+    `Click any county to select it; scroll, pinch or use the controls to zoom into a ` +
+    `region. Rent here is ${basis().label}` +
     (basis().hasBedrooms
       ? `, ${UNIT_SIZES.find((u) => u.key === state.unitSize).label.toLowerCase()}`
       : '') +
@@ -723,7 +844,7 @@ function renderBars() {
 }
 
 function renderHeatmap() {
-  const profiles = state.profiles.profiles;
+  const profiles = comparableProfiles();
 
   const ordered = locationsFor(state.offer)
     .sort((a, b) => (a.result.baseRatio ?? 1) - (b.result.baseRatio ?? 1))
@@ -758,7 +879,7 @@ function renderMultiples() {
   const mount = $('#multiples');
   mount.replaceChildren();
 
-  const results = state.profiles.profiles.map((p) => ({
+  const results = comparableProfiles().map((p) => ({
     profile: p,
     res: affordability(p, { state: hub.state, local: hub.local, rent: hub.rent }),
   }));

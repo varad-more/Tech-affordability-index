@@ -120,6 +120,14 @@ test.describe('affordability index', () => {
       nodes.filter((n) => n.getAttribute('fill').includes('nodata')).length,
     );
     expect(nodata, 'ZORI basis should leave many counties unshaded').toBeGreaterThan(1000);
+
+    // The legend has to name the source that is actually silent, or a third of
+    // the country reads as "cheap" rather than "unmeasured".
+    await expect(page.locator('#map-legend .map-legend-item').last())
+      .toHaveAttribute('title', /Zillow ZORI/);
+    await page.locator('#rent-basis').selectOption('acs');
+    await expect(page.locator('#map-legend .map-legend-item').last())
+      .toHaveAttribute('title', /Census ACS/);
   });
 
   test('unit size changes the rent, and a single adult is priced as one bedroom', async ({ page }) => {
@@ -226,7 +234,113 @@ test.describe('affordability index', () => {
       expect(after).toBeGreaterThan(before);
     }).toPass();
 
-    await expect(page.locator('.presets button[aria-pressed="true"]')).toHaveCount(0);
+    // Typing over a preset is exactly what "Other" means, so the row has to show
+    // that. Leaving every chip unpressed reads as "nothing selected", which is
+    // never true — some offer is always driving the numbers on screen.
+    await expect(page.locator('.presets button[aria-pressed="true"]')).toHaveText('Other');
+    await expect(page.locator('#preset-note')).toContainText(/nothing here is sourced/i);
+  });
+
+  test('the Other job carries your own numbers into every comparison', async ({ page }) => {
+    await ready(page);
+    await expect(page.locator('.multiple')).toHaveCount(PROFILE_COUNT);
+
+    await page.getByRole('button', { name: 'Other', exact: true }).click();
+
+    // Your offer joins the grid and the vesting panels once it exists, and the
+    // company schedule it was seeded from is replaced by a neutral assumption
+    // rather than quietly inherited.
+    await expect(page.locator('.multiple')).toHaveCount(PROFILE_COUNT + 1);
+    await expect(page.locator('.multiple').filter({ hasText: 'Your offer' })).toHaveCount(1);
+    await expect(page.locator('#heatmap .cell-value')).toHaveCount(HUB_COUNT * (PROFILE_COUNT + 1));
+    await expect(page.locator('#preset-note')).toContainText(/even quarters/i);
+
+    // Editing a field keeps you on Other rather than bouncing back to a preset.
+    await page.locator('#base').fill('123456');
+    await expect(page.locator('.presets button[aria-pressed="true"]')).toHaveText('Other');
+    await expect(page.locator('.multiple')).toHaveCount(PROFILE_COUNT + 1);
+
+    // Returning to a sourced preset drops it again, so the grid never shows a
+    // stale duplicate of a package nobody selected.
+    await page.getByRole('button', { name: /Netflix/ }).click();
+    await expect(page.locator('.multiple')).toHaveCount(PROFILE_COUNT);
+    await expect(page.locator('#preset-note')).toContainText(/Levels\.fyi/);
+  });
+
+  test('the map zooms by wheel and by button, and resets', async ({ page }) => {
+    await ready(page);
+
+    const level = page.locator('#map .map-zoom-level');
+    const transform = () => page.locator('#map .map-view').getAttribute('transform');
+
+    await expect(level).toHaveText('1.0×');
+    const flat = await transform();
+
+    await page.locator('#map .map-btn[data-act="in"]').click();
+    await expect(level).not.toHaveText('1.0×');
+    expect(await transform(), 'the zoom button did not move the view').not.toBe(flat);
+
+    await page.locator('#map .map-btn[data-act="reset"]').click();
+    await expect(level).toHaveText('1.0×');
+    expect(await transform()).toBe(flat);
+
+    // The wheel is the gesture most people will actually reach for, and it only
+    // works if the handler is non-passive enough to preventDefault.
+    await page.locator('#map .map-svg').hover({ position: { x: 240, y: 180 } });
+    await page.mouse.wheel(0, -400);
+    await expect(level).not.toHaveText('1.0×');
+  });
+
+  test('dragging pans the map without selecting what it started over', async ({ page }) => {
+    await ready(page);
+    const before = await page.locator('#county-picker').inputValue();
+    const transform = () => page.locator('#map .map-view').getAttribute('transform');
+
+    // Zoom in first: at 1x the clamp pins the transform, so a drag moves nothing
+    // and a sloppy click should still select normally.
+    await page.locator('#map .map-btn[data-act="in"]').click();
+    await page.locator('#map .map-btn[data-act="in"]').click();
+    const anchored = await transform();
+
+    const frame = await page.locator('#map .map-svg').boundingBox();
+    const cx = frame.x + frame.width / 2;
+    const cy = frame.y + frame.height / 2;
+
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    await page.mouse.move(cx - 140, cy + 40, { steps: 12 });
+    await page.mouse.up();
+
+    expect(await transform(), 'the drag did not pan').not.toBe(anchored);
+
+    // A pan ends in a click event. If that click is allowed through, every drag
+    // silently reselects whichever county it began on.
+    await expect(page.locator('#county-picker')).toHaveValue(before);
+
+    // The map is focusable, so the same zoom is reachable without a pointer.
+    await page.locator('#map .map-svg').focus();
+    await page.keyboard.press('0');
+    await expect(page.locator('#map .map-zoom-level')).toHaveText('1.0×');
+  });
+
+  test('zoom to county frames the selected county', async ({ page }) => {
+    await ready(page);
+
+    await page.locator('#county-picker').fill('Los Angeles County, CA');
+    await page.locator('#county-picker').dispatchEvent('change');
+    await page.locator('#map .map-btn[data-act="locate"]').click();
+
+    const zoom = Number((await page.locator('#map .map-zoom-level').textContent()).replace('×', ''));
+    expect(zoom, 'zoom to county barely moved').toBeGreaterThan(3);
+
+    // Landing zoomed-in but somewhere else is worse than not zooming at all, so
+    // the selected county has to end up near the middle of the frame.
+    const outline = await page.locator('#map .map-selected').boundingBox();
+    const frame = await page.locator('#map .map-svg').boundingBox();
+    const dx = outline.x + outline.width / 2 - (frame.x + frame.width / 2);
+    const dy = outline.y + outline.height / 2 - (frame.y + frame.height / 2);
+    expect(Math.abs(dx)).toBeLessThan(frame.width * 0.1);
+    expect(Math.abs(dy)).toBeLessThan(frame.height * 0.1);
   });
 
   test('a lower salary pushes counties into worse bands', async ({ page }) => {
@@ -385,7 +499,9 @@ test.describe('affordability index', () => {
 
     await expect(page.locator('#bars svg')).toHaveAttribute('aria-label', /rent/i);
     await expect(page.locator('#heatmap svg')).toHaveAttribute('aria-label', /rent/i);
-    await expect(page.locator('#map svg')).toHaveAttribute('aria-label', /county/i);
+    await expect(page.locator('#map .map-svg')).toHaveAttribute('aria-label', /county/i);
+    // Every control icon is decorative; the button around it carries the name.
+    await expect(page.locator('#map .map-btn svg[aria-hidden="true"]')).toHaveCount(4);
     await expect(page.locator('details.table-view').first()).toBeVisible();
 
     await expect(page.locator('#bars .bar-row').first()).toHaveAttribute('tabindex', '0');

@@ -10,6 +10,8 @@
 </head>
 <body>
 
+<a class="skip-link" href="#content">Skip to content</a>
+
 <nav class="topnav">
   <div class="topnav-inner">
     <a class="brand" href="index.html">Tech&nbsp;Affordability&nbsp;Index</a>
@@ -23,7 +25,7 @@
   </div>
 </nav>
 
-<div class="wrap">
+<div class="wrap" id="content">
 
   <header class="hero">
     <p class="eyebrow">Every US county · <span id="tax-year-badge"></span> tax law</p>
@@ -47,12 +49,16 @@
     <p class="eyebrow">Step one</p>
     <h2>Your offer</h2>
     <p class="sub">
-      Start from a real entry-level package, then overwrite any field with your own
-      numbers. Compensation is the input you supply; the cost of living is the part kept
+      Start from a real entry-level package, or pick <strong>Other</strong> and type your
+      own. Compensation is the input you supply; the cost of living is the part kept
       current for you.
     </p>
 
-    <div class="presets" id="presets"></div>
+    <div class="control-group">
+      <span class="control-label" id="presets-label">Starting point</span>
+      <div class="presets" id="presets" role="group" aria-labelledby="presets-label"></div>
+      <p class="control-note" id="preset-note"></p>
+    </div>
 
     <div class="fields">
       <div class="field">
@@ -147,7 +153,7 @@
     <h2>The whole country at once</h2>
     <p class="sub" id="map-intro"></p>
 
-    <div class="chart-scroll"><div id="map"></div></div>
+    <div id="map"></div>
     <div id="map-legend"></div>
     <p class="sub" id="map-caption" style="margin-top:12px"></p>
   </section>

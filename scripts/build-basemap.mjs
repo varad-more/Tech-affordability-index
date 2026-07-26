@@ -169,16 +169,50 @@ function decodeArcs(topology) {
 }
 
 /**
- * Stitch a ring's arc references into one coordinate list.
+ * Project and simplify one arc, memoised across every geometry that uses it.
  *
- * A negative index means "traverse this arc backwards"; the shared endpoint is
- * dropped so the seam between two arcs is not a duplicated vertex.
+ * Simplification has to happen per ARC, and never per assembled ring. Two
+ * neighbouring counties share the arc that runs along their common border.
+ * Simplify each finished ring instead and that one border gets approximated
+ * twice, from different vertex neighbourhoods, so the two polygons stop
+ * agreeing on where it runs. At 1x the disagreement is sub-pixel and invisible.
+ * Zoom in and it opens into a white sliver between every pair of counties —
+ * which is precisely the failure TopoJSON's shared-arc encoding exists to
+ * prevent, thrown away at the last step.
+ *
+ * The cache is keyed by panel and tolerance as well as by index, because Alaska
+ * and Hawaii project through their own panels and the state layer is simplified
+ * more coarsely than the county layer.
  */
-function ringCoordinates(arcIndices, arcs) {
+function projectedArc(index, arcs, panel, panelKey, tolerance, cache) {
+  const key = `${panelKey}|${tolerance}|${index}`;
+  let out = cache.get(key);
+  if (!out) {
+    out = simplify(arcs[index].map((c) => panel(c)), tolerance);
+    cache.set(key, out);
+  }
+  return out;
+}
+
+/**
+ * Stitch a ring's arc references into one projected, simplified coordinate list.
+ *
+ * A negative index means "traverse this arc backwards". The arc is always
+ * simplified in its stored direction and the result reversed afterwards, so the
+ * two polygons sharing it are guaranteed the identical vertex list rather than
+ * merely a very similar one.
+ *
+ * The shared endpoint is dropped so the seam between two arcs is not a
+ * duplicated vertex.
+ */
+function ringCoordinates(arcIndices, arcs, panel, panelKey, tolerance, cache) {
   const out = [];
 
   for (const index of arcIndices) {
-    const arc = index < 0 ? [...arcs[~index]].reverse() : arcs[index];
+    const forward = projectedArc(
+      index < 0 ? ~index : index, arcs, panel, panelKey, tolerance, cache,
+    );
+    const arc = index < 0 ? [...forward].reverse() : forward;
     out.push(...(out.length ? arc.slice(1) : arc));
   }
   return out;
@@ -189,6 +223,38 @@ function geometryRings(geometry) {
   if (geometry.type === 'Polygon') return geometry.arcs;
   if (geometry.type === 'MultiPolygon') return geometry.arcs.flat();
   throw new Error(`Unsupported geometry type: ${geometry.type}`);
+}
+
+const round2 = (v) => Math.round(v * 100) / 100;
+
+/**
+ * Bounding box of every drawn county, read back off the emitted path strings.
+ *
+ * Reading the paths rather than the ring arrays keeps this honest: it measures
+ * exactly what ships, so a rounding or serialisation change cannot leave the
+ * crop describing geometry that is no longer there.
+ */
+function countyBounds(counties) {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  for (const county of counties) {
+    for (const pair of county.d.matchAll(/(-?[\d.]+),(-?[\d.]+)/g)) {
+      const x = Number(pair[1]);
+      const y = Number(pair[2]);
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+
+  if (!Number.isFinite(minX) || maxX <= minX || maxY <= minY) {
+    throw new Error('Could not measure the drawn extent of the county layer');
+  }
+  return { minX, minY, maxX, maxY };
 }
 
 /** Absolute area of a projected ring, via the shoelace formula. */
@@ -224,11 +290,20 @@ async function fetchTopology() {
  *
  * @returns {{ d: string, before: number, after: number, dropped: number }}
  */
-function buildPath(geometry, arcs, panel, tolerance, minArea) {
-  const ringsIn = geometryRings(geometry).map((indices) => ringCoordinates(indices, arcs));
-  const before = ringsIn.reduce((n, r) => n + r.length, 0);
+function buildPath(geometry, arcs, panel, panelKey, tolerance, minArea, cache) {
+  const ringIndices = geometryRings(geometry);
 
-  const allRings = ringsIn.map((ring) => ring.map((c) => panel(c)));
+  // Arcs are projected and simplified on the way in, so the tolerance is in the
+  // pixels the reader actually sees rather than in degrees, which vary in size
+  // with latitude.
+  const allRings = ringIndices.map((indices) =>
+    ringCoordinates(indices, arcs, panel, panelKey, tolerance, cache),
+  );
+
+  const before = ringIndices.reduce(
+    (n, indices) => n + indices.reduce((m, i) => m + arcs[i < 0 ? ~i : i].length, 0),
+    0,
+  );
 
   let dropped = 0;
   let kept = allRings.filter((ring) => {
@@ -245,17 +320,18 @@ function buildPath(geometry, arcs, panel, tolerance, minArea) {
     dropped -= 1;
   }
 
-  const projected = kept
-    // Simplify after projecting, so the tolerance is in the pixels the reader
-    // actually sees rather than in degrees, which vary in size with latitude.
-    .map((ring) => simplify(ring, tolerance));
+  // Fewer than three vertices is not a polygon. Simplifying per arc means a
+  // shape small enough to sit inside the tolerance can collapse, and a collapsed
+  // ring renders as nothing at all — a hole in the map rather than a small county.
+  const degenerate = kept.filter((ring) => ring.length < 3).length;
 
   return {
-    d: ringsToPath(projected),
-    rings: projected.length,
+    d: ringsToPath(kept),
+    rings: kept.length,
     before,
-    after: projected.reduce((n, r) => n + r.length, 0),
+    after: kept.reduce((n, r) => n + r.length, 0),
     dropped,
+    degenerate,
   };
 }
 
@@ -319,6 +395,10 @@ async function main() {
 
   const arcs = decodeArcs(topology);
 
+  // Shared between the county and state passes: an arc projected once is an arc
+  // that cannot disagree with itself later.
+  const arcCache = new Map();
+
   const vertexCount = { before: 0, after: 0 };
   let droppedRings = 0;
 
@@ -329,8 +409,10 @@ async function main() {
     const fips = String(geometry.id).padStart(5, '0');
     if (TERRITORIES.has(fips.slice(0, 2))) continue;
 
-    const panel = PANELS[PANEL_BY_FIPS[fips.slice(0, 2)] ?? 'lower48'];
-    const built = buildPath(geometry, arcs, panel, SIMPLIFY_TOLERANCE, MIN_RING_AREA);
+    const panelKey = PANEL_BY_FIPS[fips.slice(0, 2)] ?? 'lower48';
+    const built = buildPath(
+      geometry, arcs, PANELS[panelKey], panelKey, SIMPLIFY_TOLERANCE, MIN_RING_AREA, arcCache,
+    );
 
     vertexCount.before += built.before;
     vertexCount.after += built.after;
@@ -340,6 +422,12 @@ async function main() {
     // is far larger than the ring threshold at this scale.
     if (!built.rings) {
       throw new Error(`${geometry.properties.name} (${fips}) has no rings left after filtering`);
+    }
+    if (built.degenerate) {
+      throw new Error(
+        `${geometry.properties.name} (${fips}) collapsed to ${built.degenerate} ring(s) of ` +
+          `fewer than 3 vertices — the simplify tolerance is too coarse for it`,
+      );
     }
 
     // Prefer the gazetteer's official name and state; fall back to us-atlas so a
@@ -372,20 +460,37 @@ async function main() {
     const fips = String(geometry.id).padStart(2, '0');
     if (TERRITORIES.has(fips)) continue;
 
-    const panel = PANELS[PANEL_BY_FIPS[fips] ?? 'lower48'];
+    const panelKey = PANEL_BY_FIPS[fips] ?? 'lower48';
     // State outlines are a stroked overlay, so they can carry a coarser
     // tolerance than the county fills without any visible difference.
-    const built = buildPath(geometry, arcs, panel, SIMPLIFY_TOLERANCE * 1.6, MIN_RING_AREA * 2);
+    const built = buildPath(
+      geometry, arcs, PANELS[panelKey], panelKey,
+      SIMPLIFY_TOLERANCE * 1.6, MIN_RING_AREA * 2, arcCache,
+    );
 
     states.push({ id: fips, name: geometry.properties.name, d: built.d });
   }
 
   if (states.length !== 51) throw new Error(`Expected 51 states + DC, built ${states.length}`);
 
+  // The projection's nominal 960x600 frame is generous: the drawn country leaves
+  // roughly a fifth of it empty, mostly below Hawaii. Cropping to what was
+  // actually drawn makes the map that much larger at every width for free, and
+  // matters most on a phone where the whole frame is only a few hundred pixels.
+  const bounds = countyBounds(counties);
+  const pad = 4;
+  const contentBox = [
+    round2(bounds.minX - pad),
+    round2(bounds.minY - pad),
+    round2(bounds.maxX - bounds.minX + pad * 2),
+    round2(bounds.maxY - bounds.minY + pad * 2),
+  ];
+
   const payload = {
     source: SOURCE,
     projection: 'Albers USA (equal-area), scale 1070, translate [480, 250]',
     viewBox: `0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`,
+    contentBox: contentBox.join(' '),
     countyCount: counties.length,
     stateCount: states.length,
     counties: counties.sort((a, b) => a.id.localeCompare(b.id)),
