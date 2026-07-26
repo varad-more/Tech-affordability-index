@@ -40,6 +40,7 @@
     <a href="#question">The question</a>
     <a href="#sources">Data sources</a>
     <a href="#bands">The band model</a>
+    <a href="#math">The math</a>
     <a href="#tax">The tax engine</a>
     <a href="#map">The map</a>
     <a href="#timing">Seasonality</a>
@@ -238,6 +239,183 @@
       breaks. The top three breaks are exactly the named standards (50%, 70%, 100%), so
       the map and the written verdict can never disagree; the lower breaks subdivide the
       crowded comfortable end where the real variation lives.
+    </p>
+  </section>
+
+  <section id="math">
+    <h2>The model in symbols</h2>
+    <p>
+      Everything above, stated formally. These are the expressions the code evaluates,
+      not a tidied-up version of them — where the notation and the implementation once
+      disagreed, the notation was corrected, and the three places that happened are
+      called out below.
+    </p>
+
+    <h3>Variables</h3>
+    <table class="facts wide">
+      <thead><tr><th>Symbol</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><th><math><mi>B</mi></math></th>
+            <td>Annual base salary.</td></tr>
+        <tr><th><math><msub><mi>G</mi><mtext>rsu</mtext></msub></math></th>
+            <td>Total equity grant value, over the whole four-year vest.</td></tr>
+        <tr><th><math><msub><mi>v</mi><mi>y</mi></msub></math></th>
+            <td>Fraction of the grant vesting in year <math><mi>y</mi></math> — for example
+                <math><mn>0.05</mn></math> for Amazon's 5% first year. The four values sum
+                to 1.</td></tr>
+        <tr><th><math><msub><mi>C</mi><mi>y</mi></msub></math></th>
+            <td>Cash bonus paid in year <math><mi>y</mi></math>, which is how a split
+                sign-on is represented.</td></tr>
+        <tr><th><math><mi>δ</mi></math></th>
+            <td>Equity haircut: the share of a grant counted as real. <strong>Not a
+                universal 0.85.</strong> It is a property of the offer — 0.85 for the
+                public-company presets, <strong>0</strong> for the Series&nbsp;B startup,
+                because you cannot pay rent with illiquid private shares — and it is
+                editable.</td></tr>
+        <tr><th><math><mi>T</mi><mo>(</mo><mi>I</mi><mo>,</mo><mi>L</mi><mo>)</mo></math></th>
+            <td>Total tax liability on gross wage income <math><mi>I</mi></math> in
+                jurisdiction <math><mi>L</mi></math>. Expanded below.</td></tr>
+        <tr><th><math><msub><mi>R</mi><mi>m</mi></msub></math></th>
+            <td>Median monthly rent. <strong>County</strong>, not ZIP code — one bedroom by
+                default, on whichever rent basis is selected.</td></tr>
+        <tr><th><math><msub><mi>N</mi><mi>c</mi></msub></math></th>
+            <td>MIT's monthly non-housing essentials for one adult in that county.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>The tax function includes payroll</h3>
+    <p>
+      <math><mi>T</mi></math> is often written as federal + state + city. That would leave
+      out the largest single deduction after federal income tax. What the engine actually
+      computes is:
+    </p>
+    <math display="block" class="eq">
+      <mi>T</mi><mo>(</mo><mi>I</mi><mo>,</mo><mi>L</mi><mo>)</mo>
+      <mo>=</mo>
+      <msub><mi>T</mi><mtext>fed</mtext></msub><mo>(</mo><mi>I</mi><mo>)</mo>
+      <mo>+</mo>
+      <msub><mi>T</mi><mtext>FICA</mtext></msub><mo>(</mo><mi>I</mi><mo>)</mo>
+      <mo>+</mo>
+      <msub><mi>T</mi><mtext>state</mtext></msub><mo>(</mo><mi>I</mi><mo>,</mo><mi>L</mi><mo>)</mo>
+      <mo>+</mo>
+      <msub><mi>T</mi><mtext>payroll</mtext></msub><mo>(</mo><mi>I</mi><mo>,</mo><mi>L</mi><mo>)</mo>
+      <mo>+</mo>
+      <msub><mi>T</mi><mtext>city</mtext></msub><mo>(</mo><mi>I</mi><mo>,</mo><mi>L</mi><mo>)</mo>
+    </math>
+    <p>
+      FICA alone is 7.65% up to the Social Security wage base — 6.2% Social Security capped
+      at $184,500, 1.45% uncapped Medicare, plus 0.9% on wages over $200,000. The payroll
+      term covers employee-side state levies such as California SDI and Washington's Cares
+      and paid-leave premiums. Omitting either would overstate take-home by thousands a
+      year on exactly the salaries this tool is aimed at.
+    </p>
+
+    <h3>Equity and liquid income</h3>
+    <p>Equity counted in year <math><mi>y</mi></math>, after the haircut:</p>
+    <math display="block" class="eq">
+      <msub><mi>E</mi><mi>y</mi></msub><mo>=</mo>
+      <msub><mi>G</mi><mtext>rsu</mtext></msub><mo>×</mo>
+      <msub><mi>v</mi><mi>y</mi></msub><mo>×</mo><mi>δ</mi>
+    </math>
+
+    <p>
+      <strong>Liquid monthly base</strong> — the headline figure, taxing base salary alone.
+      This is the money that arrives on the same day every month, which is the only kind
+      that reliably clears a rent payment:
+    </p>
+    <math display="block" class="eq">
+      <msub><mi>M</mi><mtext>base</mtext></msub><mo>=</mo>
+      <mfrac>
+        <mrow><mi>B</mi><mo>−</mo><mi>T</mi><mo>(</mo><mi>B</mi><mo>,</mo><mi>L</mi><mo>)</mo></mrow>
+        <mn>12</mn>
+      </mfrac>
+    </math>
+
+    <p>
+      <strong>Liquid monthly total</strong> for year <math><mi>y</mi></math>, once bonus and
+      vested equity are counted. Note that the tax function is applied to the
+      <em>combined</em> figure rather than to each part separately — vested RSUs are
+      ordinary W-2 wage income in the year they vest, so they stack onto the same
+      progressive base and push the marginal rate up:
+    </p>
+    <math display="block" class="eq">
+      <msub><mi>M</mi><mrow><mtext>total</mtext><mo>,</mo><mi>y</mi></mrow></msub><mo>=</mo>
+      <mfrac>
+        <mrow>
+          <mo>(</mo><mi>B</mi><mo>+</mo><msub><mi>C</mi><mi>y</mi></msub><mo>+</mo><msub><mi>E</mi><mi>y</mi></msub><mo>)</mo>
+          <mo>−</mo>
+          <mi>T</mi><mo>(</mo><mi>B</mi><mo>+</mo><msub><mi>C</mi><mi>y</mi></msub><mo>+</mo><msub><mi>E</mi><mi>y</mi></msub><mo>,</mo><mi>L</mi><mo>)</mo>
+        </mrow>
+        <mn>12</mn>
+      </mfrac>
+    </math>
+
+    <h3>Affordability ratios</h3>
+    <p>
+      The share of net monthly income that median rent consumes. Lower is more affordable;
+      0.30 is HUD's cost-burdened line.
+    </p>
+    <math display="block" class="eq">
+      <msub><mi>ρ</mi><mtext>base</mtext></msub><mo>=</mo>
+      <mfrac><msub><mi>R</mi><mi>m</mi></msub><msub><mi>M</mi><mtext>base</mtext></msub></mfrac>
+      <mspace width="2.5em"/>
+      <msub><mi>ρ</mi><mrow><mtext>total</mtext><mo>,</mo><mi>y</mi></mrow></msub><mo>=</mo>
+      <mfrac><msub><mi>R</mi><mi>m</mi></msub><msub><mi>M</mi><mrow><mtext>total</mtext><mo>,</mo><mi>y</mi></mrow></msub></mfrac>
+    </math>
+    <p>
+      Both are left undefined, and drawn as a gap rather than as zero, whenever
+      <math><mi>M</mi><mo>≤</mo><mn>0</mn></math>. An offer that nets nothing monthly cannot
+      cover any rent, and rendering that as <math><mi>∞</mi></math> would put a bar off the
+      end of a chart.
+    </p>
+
+    <h3>The band model</h3>
+    <p>
+      The ratios above answer a <em>relative</em> question. The county model answers an
+      absolute one, and needs one more term — everything that is not rent:
+    </p>
+    <math display="block" class="eq">
+      <msub><mi>n</mi><mi>c</mi></msub><mo>=</mo>
+      <msub><mi>R</mi><mi>m</mi></msub><mo>+</mo><msub><mi>N</mi><mi>c</mi></msub>
+      <mspace width="2.5em"/>
+      <mi>σ</mi><mo>=</mo>
+      <mfrac><msub><mi>n</mi><mi>c</mi></msub><msub><mi>M</mi><mtext>base</mtext></msub></mfrac>
+    </math>
+    <p>
+      <math><mi>σ</mi></math> is the quantity the map shades and the verdict names. The
+      three salary thresholds invert it. Writing the take-home function as
+      <math><mi>G</mi><mo>(</mo><mi>x</mi><mo>)</mo><mo>=</mo><mi>x</mi><mo>−</mo><mi>T</mi><mo>(</mo><mi>x</mi><mo>,</mo><mi>L</mi><mo>)</mo></math>,
+      the salary at which essentials take a share <math><mi>s</mi></math> is:
+    </p>
+    <math display="block" class="eq">
+      <mi>S</mi><mo>(</mo><mi>s</mi><mo>)</mo><mo>=</mo>
+      <msup><mi>G</mi><mrow><mo>−</mo><mn>1</mn></mrow></msup>
+      <mrow><mo>(</mo>
+        <mfrac><mrow><mn>12</mn><msub><mi>n</mi><mi>c</mi></msub></mrow><mi>s</mi></mfrac>
+      <mo>)</mo></mrow>
+      <mo>,</mo>
+      <mspace width="1em"/>
+      <mi>s</mi><mo>∈</mo>
+      <mo>{</mo><mn>1.0</mn><mo>,</mo><mn>0.7</mn><mo>,</mo><mn>0.5</mn><mo>}</mo>
+    </math>
+    <p>
+      <math><msup><mi>G</mi><mrow><mo>−</mo><mn>1</mn></mrow></msup></math> has no closed
+      form — <math><mi>G</mi></math> is piecewise-linear with kinks at every bracket edge,
+      the wage cap and the Additional Medicare threshold — so it is evaluated by bisection,
+      as described above. The three values of <math><mi>s</mi></math> are the survival,
+      getting-by and comfortable lines.
+    </p>
+
+    <h3>Why the tax function has to be progressive</h3>
+    <p>
+      A flat effective rate is the shortcut that makes a model like this wrong in the one
+      direction that matters. For tax year 2026 the federal standard deduction for a single
+      filer is $16,100 and the brackets run from 10% up to 37% on income above $640,600, so
+      a junior engineer on a $130,000 base and a staff engineer on $400,000 of total
+      compensation face materially different effective burdens. Modelling both at one rate
+      would flatter one and penalise the other — and since equity stacks onto the same
+      progressive base, a flat rate would also erase exactly the year-to-year movement the
+      vesting panels exist to show.
     </p>
   </section>
 

@@ -1071,6 +1071,29 @@ table.facts th {
   font-size: 0.85rem;
 }
 
+/* ---- equations ---- */
+
+/* MathML, rendered natively. The site loads no CDN and carries no runtime
+   dependency, which rules out KaTeX and MathJax; every current browser renders
+   <math> without either. Only sizing and spacing are set here — the layout
+   itself is the browser's job. */
+math { font-size: 1.05em; }
+
+.eq {
+  margin: 18px 0 22px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--page);
+  font-size: 1.15em;
+  /* A long equation scrolls inside its own box rather than widening the page. */
+  overflow-x: auto;
+}
+
+/* Symbols in the variable table are the row's subject, so they read as headings
+   rather than as inline maths inside a sentence. */
+table.facts th math { font-size: 1.1em; }
+
 table.facts.wide th { width: auto; }
 table.facts thead th { color: var(--ink-muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.04em; }
 

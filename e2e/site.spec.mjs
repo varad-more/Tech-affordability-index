@@ -1,6 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
+// Imported rather than transcribed: the method page quotes these figures in
+// prose, and prose is what goes stale.
+import { FEDERAL, FICA } from '../src/tax-data.js';
+
 const read = (name) =>
   JSON.parse(readFileSync(new URL(`../data/${name}`, import.meta.url), 'utf8'));
 
@@ -585,6 +589,43 @@ test.describe('affordability index', () => {
     await expect(page.locator('#sources')).toContainText('one bedroom is the default');
     await expect(page.locator('#timing')).toContainText(/centred moving average/i);
     await expect(page.locator('a[href="index.html"]').first()).toBeVisible();
+
+    expect(errors).toEqual([]);
+  });
+
+  test('the math section renders as maths and matches the engine', async ({ page }) => {
+    const errors = watchForErrors(page);
+    await page.goto('/method.html');
+
+    // MathML is rendered by the browser itself — the site loads no CDN, so KaTeX
+    // and MathJax are both out. If native support were missing the markup would
+    // collapse to run-together text, which still "contains" the right words. A
+    // laid-out fraction is the thing that proves it actually rendered.
+    const fractionHeight = await page.locator('#math mfrac').first().evaluate(
+      (n) => n.getBoundingClientRect().height,
+    );
+    expect(fractionHeight, 'MathML did not lay out — check for a text fallback').toBeGreaterThan(20);
+
+    // The three places the supplied framework disagreed with the implementation.
+    // Each is a claim that would be wrong if the notation were taken at face value.
+    await expect(page.locator('#math')).toContainText('Not a universal 0.85');
+    await expect(page.locator('#math')).toContainText(/County<?\s*,?\s*not ZIP code/i);
+    await expect(page.locator('#math')).toContainText(/FICA/);
+
+    // Constants quoted in prose must match the engine they claim to describe.
+    // The method page has gone stale on exactly this kind of number before.
+    const body = await page.locator('#math').innerText();
+    for (const value of [
+      FEDERAL.standardDeduction,
+      FEDERAL.brackets.at(-1).from,
+      FICA.socialSecurityWageBase,
+      FICA.additionalMedicareThreshold,
+    ]) {
+      expect(body, `${value.toLocaleString('en-US')} is quoted nowhere in the math section`)
+        .toContain(value.toLocaleString('en-US'));
+    }
+    expect(body).toContain(`${(FICA.socialSecurityRate * 100).toFixed(1)}%`);
+    expect(body).toContain(`${(FEDERAL.brackets.at(-1).rate * 100).toFixed(0)}%`);
 
     expect(errors).toEqual([]);
   });
