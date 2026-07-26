@@ -1245,6 +1245,54 @@ test.describe('affordability index', () => {
     }
   });
 
+  test('on a phone, controls are tappable and nothing is set in fine print', async ({ page }) => {
+    // 390px with a coarse pointer. Both halves of this have regressed before by
+    // someone adding a control, so both are asserted rather than eyeballed.
+    await page.setViewportSize({ width: 390, height: 780 });
+
+    for (const path of ['/', '/states/', '/timing/', '/method/']) {
+      await page.goto(path);
+      await expect(page.locator('#loading')).toBeHidden({ timeout: 30_000 });
+
+      // WCAG 2.5.8: 24px in both directions. Links sitting inside a sentence
+      // are exempt, and so are marks inside a chart, which carry their own
+      // hit areas and always have a table alternative.
+      const small = await page.evaluate(() => {
+        const out = [];
+        for (const el of document.querySelectorAll('a, button, select, input')) {
+          if (el.closest('svg, p, li, td, .prose')) continue;
+          const b = el.getBoundingClientRect();
+          if (!b.width && !b.height) continue;
+          if (getComputedStyle(el).display === 'none') continue;
+          if (b.width < 24 || b.height < 24) {
+            out.push(`${el.tagName.toLowerCase()}${el.id ? '#' + el.id : ''} ` +
+                     `${Math.round(b.width)}x${Math.round(b.height)}`);
+          }
+        }
+        return [...new Set(out)];
+      });
+      expect(small, `tap targets under 24px on ${path}`).toEqual([]);
+
+      // Nothing an adult has to read should be under 12px on a phone. SVG and
+      // MathML are excluded: their type scales with the drawing, not the page.
+      const fine = await page.evaluate(() => {
+        const out = [];
+        const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+          const el = n.parentElement;
+          if (!n.nodeValue.trim() || !el) continue;
+          if (el.closest('svg, math')) continue;
+          const cs = getComputedStyle(el);
+          if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+          const size = parseFloat(cs.fontSize);
+          if (size && size < 12) out.push(`${el.tagName.toLowerCase()} ${size}px`);
+        }
+        return [...new Set(out)];
+      });
+      expect(fine, `text under 12px on ${path}`).toEqual([]);
+    }
+  });
+
   test('every internal link on every page resolves', async ({ page }) => {
     // The clean-URL move rewrote every href by hand. A typo in one of them is
     // invisible until someone clicks it, and looks exactly like a working site.

@@ -2027,3 +2027,73 @@ td .swatch {
   .map-controls { top: 8px; right: 8px; }
   .map-status { left: 8px; bottom: 8px; }
 }
+
+/* ============================================================== touch + phone
+
+   Two separate problems, deliberately behind two different queries.
+
+   Hit areas are about the *pointer*, not the screen: a finger is imprecise on a
+   1024px tablet too. Type size is about the *screen*, since a 0.71rem eyebrow
+   is legible on a desktop and not on a phone held at arm's length.            */
+
+/* An invisible target standing in for a mark too small to hit. `transparent`
+   rather than `none`, because `fill: none` takes no pointer events at all and
+   the rect would do nothing. */
+.hit { fill: transparent; }
+
+@media (pointer: coarse), (max-width: 620px) {
+  /* WCAG 2.5.8 wants 24px in both directions. These all cleared it on width and
+     failed on height, so the padding is vertical and the layout does not move. */
+  .brand {
+    display: inline-block;
+    padding-block: 4px;
+  }
+
+  .site-footer li a,
+  .footer-bar a {
+    display: inline-block;
+    padding-block: 5px;
+  }
+
+  /* The claim-to-file table on the method page: these links are the cell's
+     whole point, not prose, so the inline-text exception does not cover them. */
+  .prose td a {
+    display: inline-block;
+    padding-block: 4px;
+  }
+}
+
+@media (max-width: 620px) {
+  /* Nothing on a phone reads below 12px. Each of these was between 11.2 and
+     11.9, close enough that raising it costs no line breaks, which is why the
+     overflow tests still pass at 320px. */
+  .eyebrow,
+  .field .hint,
+  .control-label,
+  .stat .label,
+  .stat .note,
+  .multiple .meta,
+  .footer-freshness,
+  .footer-col h2,
+  .footer-sources li span,
+  .map-legend-caption,
+  .map-zoom-level {
+    font-size: 0.75rem;
+  }
+
+  thead th,
+  table.facts thead th { font-size: 0.78rem; }
+
+  /* The colophon bar carries the licence link and the no-trackers line. Both
+     are read, not skimmed past. */
+  .footer-bar { font-size: 0.78rem; }
+
+  /* Axis labels are the one place where more type can crowd the plot, so this
+     is the smallest bump that clears the floor. */
+  .axis-label { font-size: 12px; }
+
+  /* The formula scales as a unit, so this moves the whole equation rather than
+     its parts. It already lives in a scroller if it outgrows the column. */
+  .prose code { font-size: 0.8rem; }
+  math { font-size: 1.15em; }
+}

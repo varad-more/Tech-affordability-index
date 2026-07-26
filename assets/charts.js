@@ -566,6 +566,16 @@ export function rankedBarChart(mount, rows, { threshold, thresholdLabel, gutter,
     const y = top + i * rowH;
     const g = el('g', { class: 'bar-row', tabindex: '0', role: 'listitem' });
 
+    // A 14px bar is a 14px pointer target, which on a touch screen is a miss
+    // waiting to happen. The row already owns rowH of space, so the hit area
+    // claims all of it: the picture is unchanged, the target is one you can
+    // land on. First child, so it sits behind the marks it stands in for.
+    g.appendChild(
+      el('rect', {
+        x: 0, y: y - (rowH - barH) / 2, width: W, height: rowH, class: 'hit',
+      }),
+    );
+
     g.appendChild(
       el('text', { x: gutterL - 10, y: y + barH - 1, class: 'cat-label', 'text-anchor': 'end' }, row.label),
     );
@@ -836,8 +846,16 @@ export function sparkline(mount, points, { threshold, domain, formatPoint } = {}
     }),
   );
 
+  const slice = (W - padX * 2) / Math.max(1, points.length - 1);
+
   points.forEach((p, i) => {
     const g = el('g', { tabindex: '0' });
+    // An 11px dot is not a target on a phone. Each point takes the full height
+    // of the panel and its own horizontal slice of it, so a tap anywhere in the
+    // column finds the nearest year.
+    g.appendChild(
+      el('rect', { x: x(i) - slice / 2, y: 0, width: slice, height: H, class: 'hit' }),
+    );
     // Ring in the surface color so overlapping marks stay separable.
     g.appendChild(el('circle', { cx: x(i), cy: y(p.value), r: 5.5, fill: 'var(--surface-1)' }));
     g.appendChild(el('circle', { cx: x(i), cy: y(p.value), r: 3.5, class: 'spark-dot' }));
