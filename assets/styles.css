@@ -68,6 +68,9 @@
      mark; under white text it owes 4.5:1 and does not reach it in either theme,
      so filled controls take this instead. */
   --accent-solid: light-dark(#2a4fae, #33468f);
+  /* Ink for anything sitting on --accent-solid. Fixed rather than light-dark(),
+     because the accent is a dark blue in both themes. */
+  --on-accent: #fff;
 
   /* Link text, held to the 4.5:1 text floor rather than the 3:1 mark floor. */
   --link:       light-dark(#2a4fae, #93a9f2);
@@ -171,9 +174,26 @@
   *, *::before, *::after { transition-duration: 1ms !important; }
 }
 
+/* A wash across the top of every page, so the largest empty area on the site has
+   some depth in it rather than being flat ground.
+ *
+ * It is a background layer on `body` rather than a bleeding pseudo-element on
+ * the hero. A pseudo-element would have to reach past the wrap's measure with
+ * negative `vw` insets, and although `overflow: clip` hides the result, the
+ * document's `scrollWidth` still grows — which is exactly what the layout test
+ * measures, and a real horizontal scrollbar in any browser that lacks `clip`.
+ * A background paints to the element's box and can overflow nothing.
+ *
+ * The far stop is `--page` and not `transparent`: a transparent stop
+ * interpolates through transparent *black* in sRGB, greying the middle of the
+ * fade into a smudge. */
 body {
   margin: 0;
-  background: var(--page);
+  background:
+    radial-gradient(58% 480px at 24% 0%,
+      color-mix(in oklab, var(--accent) 9%, var(--page)) 0%,
+      var(--page) 72%) no-repeat top center / 100% 560px,
+    var(--page);
   color: var(--ink-1);
   font-family: var(--font);
   line-height: 1.5;
@@ -183,7 +203,9 @@ body {
 .wrap {
   max-width: 1080px;
   margin: 0 auto;
-  padding: 40px 24px 88px;
+  /* Less bottom padding than the page used to carry: the footer band below now
+     provides the closing space, and 88px of air on top of it read as a gap. */
+  padding: 40px 24px 52px;
 }
 
 /* ---- top nav ---- */
@@ -389,7 +411,11 @@ h1 {
   color: var(--ink-2);
 }
 
-.freshness .dot {
+/* The live dot, wherever freshness is claimed — the masthead pill and the
+   footer both make the claim, so the mark that carries it is not scoped to
+   either one. Decoration beside a sentence that already states the date, never
+   the sole carrier of it. */
+.dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -414,12 +440,44 @@ h1 {
 /* ---- panels ---- */
 
 section.panel {
+  position: relative;
   background: var(--surface-1);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-1);
   padding: 34px 36px;
   margin-top: 26px;
+}
+
+/* The folio numeral a printed piece would set in the corner of a section
+   opening. It is drawn from a CSS counter rather than written into the markup,
+   so a panel added or reordered renumbers itself and no HTML carries a number
+   that could go stale against the "Step one / two / three" it sits beside.
+
+   `--grid` is the faintest ink on the page and this is the one mark allowed to
+   use it for type: it is decoration with a text equivalent immediately below
+   it, so `aria-hidden` semantics come free — generated content is not announced
+   as content, and nothing is lost if it never renders. */
+#app { counter-reset: panel; }
+
+/* Only the numbered steps take a folio. The chart panels below them are a
+   gallery, not a sequence — the same distinction the rule beside the eyebrow
+   already draws — so they neither carry a numeral nor advance the count. */
+section.panel:has(> .eyebrow.step) { counter-increment: panel; }
+
+section.panel:has(> .eyebrow.step)::before {
+  content: counter(panel, decimal-leading-zero);
+  position: absolute;
+  top: 22px;
+  right: 26px;
+  font-family: var(--font-display);
+  font-variation-settings: "opsz" 96;
+  font-weight: 500;
+  font-size: 3.2rem;
+  line-height: 1;
+  color: var(--grid);
+  pointer-events: none;
+  user-select: none;
 }
 
 section.panel .eyebrow { margin-bottom: 6px; }
@@ -433,6 +491,10 @@ section.panel .eyebrow { margin-bottom: 6px; }
   align-items: center;
   gap: 10px;
   margin-bottom: 10px;
+  /* Clear the folio numeral in the corner. The rule is a flex spacer that grows
+     to the full content width, so without this it runs straight through the
+     numeral rather than stopping short of it. */
+  padding-right: 58px;
 }
 
 .eyebrow.step::after {
@@ -525,7 +587,7 @@ h3 {
 .presets button[aria-pressed="true"] {
   background: var(--accent-solid);
   border-color: var(--accent-solid);
-  color: #fff;
+  color: var(--on-accent);
   box-shadow: var(--shadow-1);
 }
 
@@ -574,6 +636,44 @@ h3 {
 .field input:hover:not(:disabled),
 .field select:hover:not(:disabled) { border-color: var(--axis); }
 
+/* The native select control is the one place the page cannot help looking like
+   whichever OS it is running on: macOS draws a rounded double-chevron slab, and
+   next to it our own text input reads as a different species of control. Turning
+   the appearance off and drawing the mark ourselves is what makes the four
+   pickers in the row look like four of the same thing.
+
+   The chevron is two borders on a rotated square rather than an image, so it
+   inherits the theme's ink and costs no request. */
+.select-wrap {
+  position: relative;
+  display: block;
+  color: var(--ink-muted);
+}
+
+.select-wrap select {
+  appearance: none;
+  padding-right: 32px;
+}
+
+.select-wrap::after {
+  content: "";
+  position: absolute;
+  right: 13px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-right: 1.6px solid currentColor;
+  border-bottom: 1.6px solid currentColor;
+  /* Rotating a square puts its centre below the visual centre of the arrow it
+     becomes, so the translate is over half to bring the point back to the middle. */
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
+  transition: color 120ms ease;
+}
+
+.select-wrap:hover { color: var(--ink-2); }
+.select-wrap:has(select:disabled) { color: var(--axis); }
+
 .field input:focus,
 .field select:focus {
   outline: 2px solid var(--accent);
@@ -618,6 +718,152 @@ h3 {
 .field .hint {
   font-size: 0.72rem;
   color: var(--ink-muted);
+  margin-top: 4px;
+}
+
+/* ---- combobox ---- */
+
+.combo { position: relative; }
+
+.combo input { padding-right: 32px; }
+
+/* The toggle is a target, not a tab stop: the input beside it already opens the
+   list on focus and on the down arrow, so a second stop in the tab order would
+   only be somewhere for the keyboard to get stuck. */
+.combo-toggle {
+  position: absolute;
+  right: 1px;
+  top: 1px;
+  bottom: 1px;
+  width: 30px;
+  border: 0;
+  border-radius: 0 8px 8px 0;
+  background: none;
+  color: var(--ink-muted);
+  cursor: pointer;
+  padding: 0;
+}
+
+.combo-toggle::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-right: 1.6px solid currentColor;
+  border-bottom: 1.6px solid currentColor;
+  transform: translate(-50%, -70%) rotate(45deg);
+}
+
+.combo-toggle:hover { color: var(--ink-1); }
+
+.combo input[aria-expanded="true"] + .combo-toggle::after {
+  transform: translate(-50%, -30%) rotate(225deg);
+}
+
+.combo-list {
+  position: absolute;
+  /* Above the sticky topnav: an open popup outranks page furniture. */
+  z-index: 40;
+  top: calc(100% + 5px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  max-height: 320px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--surface-1);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-2);
+}
+
+.combo-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  cursor: pointer;
+  scroll-margin: 4px;
+}
+
+.combo-main { min-width: 0; flex: 1; }
+
+.combo-name {
+  display: block;
+  font-size: 0.9rem;
+  color: var(--ink-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The postal code rides with the name so the row reads "King County WA" at a
+   glance, without spending the width a second full state name would cost. */
+.combo-st {
+  margin-left: 6px;
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  color: var(--ink-muted);
+}
+
+.combo-where {
+  display: block;
+  margin-top: 1px;
+  font-size: 0.72rem;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.combo-rent {
+  flex: none;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+
+.combo-rent.none {
+  font-size: 0.72rem;
+  color: var(--ink-muted);
+}
+
+/* The active row is pointed at by aria-activedescendant, so it is styled from
+   aria-selected rather than from :hover — the keyboard and the mouse must light
+   up the same row, and only ever one of them at a time. */
+.combo-row[aria-selected="true"] {
+  background: var(--accent-solid);
+}
+
+.combo-row[aria-selected="true"] .combo-name,
+.combo-row[aria-selected="true"] .combo-st,
+.combo-row[aria-selected="true"] .combo-where,
+.combo-row[aria-selected="true"] .combo-rent {
+  color: var(--on-accent);
+}
+
+.combo-row mark {
+  background: none;
+  color: inherit;
+  font-weight: 650;
+}
+
+.combo-empty {
+  padding: 9px;
+  font-size: 0.82rem;
+  color: var(--ink-muted);
+}
+
+.combo-more {
+  padding: 7px 9px 4px;
+  font-size: 0.72rem;
+  color: var(--ink-muted);
+  border-top: 1px solid var(--border);
   margin-top: 4px;
 }
 
@@ -1048,9 +1294,18 @@ svg text { font-family: var(--font); }
 
 .picker-row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+  gap: 14px 16px;
   margin-bottom: 18px;
+}
+
+/* Four controls that are not four equal questions. State narrows, county is the
+   choice being made, and the two rent controls qualify it — so county gets the
+   width, and the row stays one line rather than wrapping 2×2 and separating the
+   state filter from the list it filters. Below this the auto-fit above takes
+   over and each control gets a full row. */
+@media (min-width: 860px) {
+  .picker-row { grid-template-columns: 0.8fr 1.5fr 0.85fr 0.85fr; }
 }
 
 /* The verdict is the answer to the question in the headline, so it gets the band
@@ -1212,6 +1467,150 @@ footer.notes {
 footer.notes h2 { font-size: 0.95rem; margin-bottom: 8px; }
 footer.notes li { margin-bottom: 7px; }
 footer.notes a { color: var(--link); }
+
+/* ---- site footer ---- */
+
+/* The page ends on a full-width band a shade off the ground it has been sitting
+   on all the way down. It reads as the bottom of the document rather than as one
+   more panel, which is what a run of small links needs to stop looking like
+   content that ran out.
+
+   The element sits outside `.wrap` and re-establishes the measure itself. The
+   usual `margin: 0 calc(50% - 50vw)` trick would have done it from the inside,
+   but `100vw` counts the scrollbar and `.wrap` does not, so the footer would
+   overhang by exactly the scrollbar's width — a horizontal scrollbar on every
+   page, which is the one thing the layout tests check for by name. */
+.site-footer {
+  background: var(--surface-1);
+  border-top: 1px solid var(--rule);
+}
+
+.footer-inner {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* Mobile first, and deliberately so. An `auto-fit` track list with three column
+   minimums is the obvious way to write this and the wrong one: the minimums do
+   not collapse, so on a 390px phone the footer alone forced the document 334px
+   wider than the screen — a horizontal scrollbar on every page, from a block
+   nobody scrolls to check. Each step up is an explicit breakpoint that the
+   narrow case never has to survive. */
+.footer-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 30px 40px;
+  padding: 38px 0 30px;
+}
+
+@media (min-width: 660px) {
+  .footer-grid { grid-template-columns: 1fr 1fr; }
+
+  /* The blurb wants a measure of its own; two narrow columns would break it into
+     a column of three-word lines. */
+  .footer-brand { grid-column: 1 / -1; }
+}
+
+@media (min-width: 940px) {
+  .footer-grid {
+    grid-template-columns: minmax(230px, 1.25fr) minmax(130px, 0.62fr) minmax(260px, 1.5fr);
+  }
+
+  .footer-brand { grid-column: auto; }
+
+  /* Seven sources stacked one per line make the footer taller than the section
+     above it. Two columns turn the same list into a block the width of the space
+     it was given, which is the shape the rest of the page is in. */
+  .footer-sources ul {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 2px 22px;
+    align-content: start;
+  }
+}
+
+.footer-mark {
+  font-family: var(--font-display);
+  font-variation-settings: "opsz" 28;
+  font-weight: 600;
+  font-size: 1.12rem;
+  letter-spacing: -0.01em;
+  color: var(--ink-1);
+  margin-bottom: 9px;
+}
+
+.footer-blurb {
+  font-size: 0.82rem;
+  line-height: 1.62;
+  color: var(--ink-2);
+  max-width: 42ch;
+}
+
+.footer-freshness {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 14px;
+  font-size: 0.74rem;
+  color: var(--ink-muted);
+}
+
+.footer-col h2 {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--ink-muted);
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+
+.footer-col ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.footer-col li {
+  margin-bottom: 8px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.site-footer a {
+  color: var(--ink-2);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.site-footer a:hover {
+  color: var(--ink-1);
+  border-bottom-color: var(--accent);
+}
+
+/* Each source names what it supplies. A bare list of seven institutions credits
+   them without saying which number is whose, and this site's whole argument is
+   that every figure on it is traceable. */
+.footer-sources li span {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--ink-muted);
+}
+
+.footer-bar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px 24px;
+  padding: 15px 0 26px;
+  border-top: 1px solid var(--border);
+  font-size: 0.74rem;
+  color: var(--ink-muted);
+}
+
+.footer-boast { max-width: 52ch; }
 
 /* ---- method page ---- */
 
@@ -1376,6 +1775,13 @@ td .swatch {
   .wrap { padding: 20px 14px 56px; }
 
   section.panel { padding: 18px 15px; margin-top: 16px; }
+
+  /* The folio is decoration bought with corner whitespace, and a phone has none
+     to spend: the heading wraps into it and the numeral ends up struck through
+     the title. It goes, and the "Step two" label that carries the actual
+     meaning stays. */
+  section.panel:has(> .eyebrow.step)::before { display: none; }
+  .eyebrow.step { padding-right: 0; }
 
   .hero { padding: 18px 0 2px; }
 

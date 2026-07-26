@@ -10,7 +10,9 @@ import {
   pct, money,
 } from './charts.js';
 import { countyMap, rampLegendFor, BAND_STEP } from './map.js';
+import { combobox, highlight } from './combobox.js';
 import { initTheme } from './theme.js';
+import { initFooter } from './footer.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -85,6 +87,10 @@ const state = {
   profiles: null,
   counties: null,
   countyList: null,
+  countiesByState: null,
+  /** Postal code the county picker is narrowed to, or '' for the whole country. */
+  stateFilter: '',
+  countyBox: null,
   basemap: null,
   map: null,
   activeProfileId: 'google-l3',
@@ -143,14 +149,32 @@ async function load() {
       nonHousingMonthly: wage.nonHousingMonthly,
       expenses: wage.e ?? null,
       label: `${geo.name}, ${geo.st}`,
+      // Lowercased once at load rather than on every keystroke: the picker
+      // scores all ~3,100 counties per character typed, and case-folding four
+      // strings each time is the whole cost of that loop.
+      nameLower: geo.name.toLowerCase(),
+      searchLower: [geo.name, geo.st, STATES[geo.st].name, zori?.metro ?? '']
+        .join(' ')
+        .toLowerCase(),
     });
   }
 
   state.countyList = [...state.counties.values()].sort((a, b) => a.label.localeCompare(b.label));
 
+  // Counties grouped by state, and the state list built from what actually has
+  // data — a state with no county in the dataset must not be offerable, because
+  // choosing it would empty the picker with no way to tell why.
+  state.countiesByState = new Map();
+  for (const county of state.countyList) {
+    const bucket = state.countiesByState.get(county.state);
+    if (bucket) bucket.push(county);
+    else state.countiesByState.set(county.state, [county]);
+  }
+
   selectProfile(state.activeProfileId);
   renderMasthead(countyZori, countyAcs);
   renderPresets();
+  renderStatePicker();
   renderCountyPicker();
   renderUnitSizePicker();
   renderCityPicker();
@@ -160,6 +184,7 @@ async function load() {
     // The heatmap picks its label ink from the resolved surface, so it must redraw.
     renderHeatmap();
   });
+  initFooter();
 
   // Reveal before the first render, not after: the heatmap sizes its cells to the
   // width actually available, and a hidden container measures zero.
@@ -292,16 +317,8 @@ function bindInputs() {
     });
   }
 
-  $('#county-picker').addEventListener('change', (e) => {
-    const match = state.countyList.find((c) => c.label === e.target.value);
-    if (match) {
-      state.selectedCounty = match.fips;
-      renderCountyPanel();
-      paintMap();
-      // Picking a county while zoomed into another part of the country would
-      // otherwise outline something off-screen, which reads as a failed click.
-      state.map.revealCounty(match.fips);
-    }
+  $('#state-picker').addEventListener('change', (e) => {
+    setStateFilter(e.target.value, { openList: true });
   });
 
   $('#rent-basis').addEventListener('change', (e) => {
@@ -530,15 +547,245 @@ function renderUnitSizePicker() {
   syncUnitSizeControl();
 }
 
-function renderCountyPicker() {
-  const list = $('#county-options');
-  list.replaceChildren();
-  for (const county of state.countyList) {
-    const o = document.createElement('option');
-    o.value = county.label;
-    list.appendChild(o);
+/* ------------------------------------------------------ county picker */
+
+/**
+ * How well a county answers a query, higher being better; 0 is no match.
+ *
+ * The ordering exists because a plain substring test buries the obvious answer.
+ * Typing "king" against a national list matches King County WA, Kings County NY,
+ * Kingfisher County OK and every county in a metro whose name contains "king" —
+ * all equally, so the one you meant is wherever the alphabet puts it. Ranking a
+ * name that *starts* with the query above one that merely contains it puts the
+ * obvious answer first, which is the difference between a search and a filter.
+ */
+function scoreCounty(county, q) {
+  if (county.nameLower.startsWith(q)) return 100;
+
+  // A word start inside the name: "san" should reach "Santa Clara" as strongly
+  // as it reaches "San Diego", but not as strongly as an exact leading match.
+  if (county.nameLower.includes(` ${q}`)) return 80;
+
+  if (county.nameLower.includes(q)) return 60;
+
+  // "king county, wa" — the label as it appears in the box, so the text a
+  // previous selection left behind still finds its own county.
+  if (county.label.toLowerCase().includes(q)) return 55;
+
+  // State name or postal code: "washington" and "wa" both list the state.
+  const stateName = STATES[county.state].name.toLowerCase();
+  if (stateName.startsWith(q) || county.state.toLowerCase() === q) return 50;
+
+  // Metro last: "seattle" finding King County is useful, but only after every
+  // county actually called Seattle-something has had its turn.
+  if (county.searchLower.includes(q)) return 30;
+
+  return 0;
+}
+
+/** The counties the picker may currently offer, before any query. */
+function countyPool() {
+  return state.stateFilter
+    ? (state.countiesByState.get(state.stateFilter) ?? [])
+    : state.countyList;
+}
+
+function searchCounties(query) {
+  const pool = countyPool();
+  const q = query.trim().toLowerCase();
+  if (!q) return pool;
+
+  const hits = [];
+  for (const county of pool) {
+    const score = scoreCounty(county, q);
+    if (score > 0) hits.push({ score, county });
   }
-  $('#county-picker').value = selectedCounty()?.label ?? '';
+  hits.sort((a, b) => b.score - a.score || a.county.label.localeCompare(b.county.label));
+  const found = hits.map((h) => h.county);
+
+  // A state filter plus a query is the one combination that can look broken:
+  // "Travis" inside Washington is empty, and nothing on screen says the filter
+  // is why. Offering the national result as a row makes the cause visible and
+  // fixes it in one keystroke, instead of requiring the filter be found and
+  // cleared first.
+  if (state.stateFilter && found.length === 0) {
+    const national = state.countyList.filter((c) => scoreCounty(c, q) > 0).length;
+    if (national > 0) return [{ escape: true, count: national, query }];
+  }
+
+  return found;
+}
+
+function countyRow(item, query) {
+  const frag = document.createDocumentFragment();
+
+  const main = document.createElement('span');
+  main.className = 'combo-main';
+
+  if (item.escape) {
+    const name = document.createElement('span');
+    name.className = 'combo-name';
+    name.textContent = 'Search all states instead';
+    const where = document.createElement('span');
+    where.className = 'combo-where';
+    where.textContent =
+      `${item.count.toLocaleString()} ${item.count === 1 ? 'county' : 'counties'} ` +
+      `outside ${STATES[state.stateFilter].name} match “${item.query.trim()}”`;
+    main.append(name, where);
+    frag.appendChild(main);
+    return frag;
+  }
+
+  const name = document.createElement('span');
+  name.className = 'combo-name';
+  name.appendChild(highlight(item.name, query.trim()));
+  const st = document.createElement('span');
+  st.className = 'combo-st';
+  st.textContent = item.state;
+  name.appendChild(st);
+
+  const where = document.createElement('span');
+  where.className = 'combo-where';
+  where.textContent = item.metro
+    ? `${STATES[item.state].name} · ${item.metro}`
+    : STATES[item.state].name;
+
+  main.append(name, where);
+
+  // The rent on the *current* basis, which is the number the rest of the page
+  // is about to be computed from. Showing it here means a county with nothing
+  // published on this basis is visible as such before it is chosen, rather than
+  // after — the old picker let you select your way into an empty panel.
+  const value = document.createElement('span');
+  const rent = rentInfo(item).rent;
+  if (rent === null) {
+    value.className = 'combo-rent none';
+    value.textContent = 'no data';
+  } else {
+    value.className = 'combo-rent';
+    value.textContent = money(rent);
+  }
+
+  frag.append(main, value);
+  return frag;
+}
+
+function renderCountyPicker() {
+  const input = $('#county-picker');
+
+  state.countyBox = combobox(input, {
+    listbox: $('#county-listbox'),
+    status: $('#county-status'),
+    source: searchCounties,
+    renderRow: countyRow,
+    labelOf: (county) => county.label,
+    selected: () => selectedCounty(),
+    emptyMessage: (query) => `No county matches “${query.trim()}”.`,
+    onCommit: (item) => {
+      if (item.escape) {
+        setStateFilter('');
+        state.countyBox.open(item.query);
+        return;
+      }
+      selectCounty(item.fips);
+    },
+  });
+
+  $('#county-toggle').addEventListener('click', () => {
+    if (state.countyBox.isOpen()) state.countyBox.close();
+    else state.countyBox.open('');
+  });
+
+  // Kept from the datalist this replaced: setting the value and firing `change`
+  // still selects a county by its exact label, which is how the browser tests
+  // drive the picker and how a password manager or autofill would.
+  input.addEventListener('change', () => {
+    const match = state.countyList.find((c) => c.label === input.value);
+    if (match) selectCounty(match.fips);
+  });
+
+  syncCountyPicker();
+}
+
+/** Placeholder and value, both of which depend on the filter and the selection. */
+function syncCountyPicker() {
+  const input = $('#county-picker');
+  const n = countyPool().length;
+
+  input.placeholder = state.stateFilter
+    ? `Search ${n.toLocaleString()} ${STATES[state.stateFilter].name} ${n === 1 ? 'county' : 'counties'}…`
+    : `Search ${n.toLocaleString()} counties…`;
+
+  input.value = selectedCounty()?.label ?? '';
+}
+
+function renderStatePicker() {
+  const select = $('#state-picker');
+  select.replaceChildren();
+
+  const all = document.createElement('option');
+  all.value = '';
+  all.textContent = 'All states';
+  select.appendChild(all);
+
+  const codes = [...state.countiesByState.keys()].sort((a, b) =>
+    STATES[a].name.localeCompare(STATES[b].name),
+  );
+  for (const code of codes) {
+    const o = document.createElement('option');
+    o.value = code;
+    o.textContent = STATES[code].name;
+    select.appendChild(o);
+  }
+
+  select.value = state.stateFilter;
+  syncStateHint();
+}
+
+function syncStateHint() {
+  const n = countyPool().length;
+  $('#state-hint').textContent = state.stateFilter
+    ? `${n.toLocaleString()} ${STATES[state.stateFilter].name} ${n === 1 ? 'county' : 'counties'} with data.`
+    : 'Narrow the county list, or search the whole country.';
+}
+
+/**
+ * Narrow the picker to one state.
+ *
+ * The state is a filter on the list, not a selection in its own right: nothing
+ * in the data ranks the counties of a state, so there is no honest way to pick
+ * one on the user's behalf. What it does instead is put the county list in
+ * front of them already narrowed, and move the map to the state so the choice
+ * visibly did something.
+ */
+function setStateFilter(code, { openList = false } = {}) {
+  state.stateFilter = code;
+  $('#state-picker').value = code;
+  syncStateHint();
+  syncCountyPicker();
+
+  if (code) state.map?.zoomToState(code);
+  else state.map?.reset();
+
+  if (openList) state.countyBox.open('');
+  else state.countyBox.refresh();
+}
+
+/** The one path into a county selection, whatever triggered it. */
+function selectCounty(fips, { reveal = true } = {}) {
+  if (!state.counties.has(fips) || fips === state.selectedCounty) {
+    // Even a no-op has to put the label back: the box may be holding a query.
+    syncCountyPicker();
+    return;
+  }
+
+  state.selectedCounty = fips;
+  renderCountyPanel();
+  paintMap();
+
+  // Picking a county while zoomed into another part of the country would
+  // otherwise outline something off-screen, which reads as a failed click.
+  if (reveal) state.map?.revealCounty(fips);
 }
 
 function renderCityPicker() {
@@ -560,7 +807,7 @@ function renderCountyPanel() {
   if (!county) return;
 
   $('#rent-basis-hint').textContent = basis().hint;
-  $('#county-picker').value = county.label;
+  syncCountyPicker();
 
   const { rent, unit, fellBack } = rentInfo(county);
   const local = localCodeFor(county);
@@ -759,12 +1006,9 @@ function renderTaxTable(tax, county, local) {
 function buildMap() {
   state.map = countyMap($('#map'), {
     basemap: state.basemap,
-    onSelect: (fips) => {
-      if (!state.counties.has(fips)) return;
-      state.selectedCounty = fips;
-      renderCountyPanel();
-      paintMap();
-    },
+    // Clicking the map is already looking at the county, so it needs no
+    // recentring — that is the one caller that passes `reveal: false`.
+    onSelect: (fips) => selectCounty(fips, { reveal: false }),
     onHover: (fips, event) => {
       if (!fips) return hideTooltip();
       showCountyTooltip(fips, event);

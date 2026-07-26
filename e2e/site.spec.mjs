@@ -811,6 +811,142 @@ test.describe('affordability index', () => {
     expect(errors).toEqual([]);
   });
 
+  test('the county picker opens a real list, not a bare text box', async ({ page }) => {
+    await ready(page);
+
+    const input = page.locator('#county-picker');
+    const list = page.locator('#county-listbox');
+
+    await expect(list).toBeHidden();
+    await expect(input).toHaveAttribute('aria-expanded', 'false');
+
+    await input.click();
+    await expect(list).toBeVisible();
+    await expect(input).toHaveAttribute('aria-expanded', 'true');
+
+    // Rendering all ~3,100 counties into the DOM on every keystroke is the
+    // reason this is capped; the row that says so is not itself an option.
+    const rows = page.locator('.combo-row');
+    await expect(rows).toHaveCount(60);
+    await expect(page.locator('.combo-more')).toContainText('more');
+
+    // A row carries what the datalist it replaced could not: where the county
+    // is, and what it costs on the basis currently selected.
+    const first = rows.first();
+    await expect(first.locator('.combo-name')).not.toBeEmpty();
+    await expect(first.locator('.combo-where')).not.toBeEmpty();
+    await expect(first.locator('.combo-rent')).not.toBeEmpty();
+  });
+
+  test('searching ranks the obvious answer first', async ({ page }) => {
+    await ready(page);
+
+    await page.locator('#county-picker').fill('king');
+    const names = await page.locator('.combo-row .combo-name').allTextContents();
+
+    // "king" matches King County WA, Kings County NY, Kingfisher County OK and
+    // every county whose metro merely contains the word. A plain substring
+    // filter returns all of them in alphabetical order, which buries the one
+    // anybody typing four letters meant.
+    expect(names[0]).toMatch(/^King\b/);
+    expect(names.some((n) => /Kingfisher/.test(n))).toBe(true);
+    expect(names.indexOf(names.find((n) => /^King\b/.test(n))))
+      .toBeLessThan(names.findIndex((n) => /Kingfisher/.test(n)));
+  });
+
+  test('the keyboard alone can pick a county', async ({ page }) => {
+    await ready(page);
+    const input = page.locator('#county-picker');
+
+    await input.click();
+    await input.fill('travis');
+    await expect(page.locator('.combo-row').first()).toHaveAttribute('aria-selected', 'true');
+
+    // aria-activedescendant, not focus: the caret never leaves the input, which
+    // is what lets typing keep filtering while the arrows move the highlight.
+    await page.keyboard.press('ArrowDown');
+    const active = await input.getAttribute('aria-activedescendant');
+    expect(active).toBeTruthy();
+    await page.keyboard.press('ArrowUp');
+
+    await page.keyboard.press('Enter');
+    await expect(input).toHaveValue('Travis County, TX');
+    await expect(page.locator('#verdict')).toContainText('Travis');
+    await expect(page.locator('#county-listbox')).toBeHidden();
+  });
+
+  test('escape and blur both restore the committed county', async ({ page }) => {
+    await ready(page);
+    const input = page.locator('#county-picker');
+    const committed = await input.inputValue();
+
+    await input.fill('half-typed nonsense');
+    await page.keyboard.press('Escape');
+    await expect(input).toHaveValue(committed);
+
+    // Clicking away is the other way out, and it must not leave a query sitting
+    // in a box that names the selection the rest of the page is computed from.
+    await input.fill('more nonsense');
+    await page.locator('h1').click();
+    await expect(input).toHaveValue(committed);
+    await expect(page.locator('#verdict')).toContainText(committed.split(' County')[0]);
+  });
+
+  test('choosing a state narrows the county list and moves the map', async ({ page }) => {
+    await ready(page);
+
+    await page.locator('#state-picker').selectOption('RI');
+    await expect(page.locator('#state-hint')).toContainText('Rhode Island');
+    await expect(page.locator('#county-picker'))
+      .toHaveAttribute('placeholder', /Rhode Island/);
+
+    // The list opens on the state's counties rather than waiting to be asked.
+    await expect(page.locator('#county-listbox')).toBeVisible();
+    const states = await page.locator('.combo-row .combo-st').allTextContents();
+    expect(states.length).toBeGreaterThan(0);
+    expect(new Set(states)).toEqual(new Set(['RI']));
+
+    // A state filter that changed nothing visible would read as a dead control.
+    await expect(page.locator('.map-zoom-level')).not.toHaveText('1.0×');
+  });
+
+  test('a search with no match in the chosen state offers the way out', async ({ page }) => {
+    await ready(page);
+
+    await page.locator('#state-picker').selectOption('RI');
+    await page.locator('#county-picker').fill('Travis');
+
+    // The dead end this replaces: an empty list, with nothing on screen saying
+    // the state filter is why.
+    const row = page.locator('.combo-row').first();
+    await expect(row).toContainText('Search all states instead');
+
+    await row.click();
+    await expect(page.locator('#state-picker')).toHaveValue('');
+    await expect(page.locator('.combo-row .combo-name').first()).toContainText('Travis');
+  });
+
+  test('every page ends with the same footer, and it names its sources', async ({ page }) => {
+    for (const path of ['/', '/timing.html', '/method.html']) {
+      await page.goto(path);
+      const footer = page.locator('.site-footer');
+      await expect(footer, `no site footer on ${path}`).toBeVisible();
+
+      // Every source the numbers come from is credited, and links out.
+      for (const host of ['zillow.com', 'census.gov', 'livingwage.mit.edu',
+                          'taxfoundation.org', 'ssa.gov', 'levels.fyi', 'us-atlas']) {
+        await expect(
+          footer.locator(`a[href*="${host}"]`).first(),
+          `${host} is not credited on ${path}`,
+        ).toHaveCount(1);
+      }
+
+      // The freshness line is filled from the committed data, not written into
+      // the markup, so a stale month cannot be baked into three pages at once.
+      await expect(footer.locator('#footer-freshness')).toContainText(/\d{4}/);
+    }
+  });
+
   test('the math section renders as maths and matches the engine', async ({ page }) => {
     const errors = watchForErrors(page);
     await page.goto('/method.html');

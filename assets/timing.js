@@ -13,6 +13,7 @@ import {
   timeSeries, divergingBars, rankedBarChart, pct, money,
 } from './charts.js';
 import { initTheme } from './theme.js';
+import { initFooter } from './footer.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -44,6 +45,7 @@ async function load() {
   renderPicker();
   bindInputs();
   initTheme();
+  initFooter();
 
   // Reveal first: both charts here size themselves to their container, and a
   // hidden container measures zero.

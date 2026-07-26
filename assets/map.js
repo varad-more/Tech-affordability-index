@@ -97,7 +97,8 @@ function iconButton(action, label, extraClass = '') {
  * @param {Function} onSelect   called with a county FIPS when one is clicked
  * @param {Function} onHover    called with a county FIPS (or null) on hover
  * @param {Function} onLocate   called when "zoom to county" is pressed; returns a FIPS
- * @returns {{ paint: Function, svg: SVGElement, zoomToCounty: Function, revealCounty: Function }}
+ * @returns {{ paint: Function, svg: SVGElement, zoomToCounty: Function,
+ *            zoomToState: Function, revealCounty: Function, reset: Function }}
  */
 export function countyMap(mount, { basemap, onSelect, onHover, onLocate }) {
   mount.replaceChildren();
@@ -137,9 +138,16 @@ export function countyMap(mount, { basemap, onSelect, onHover, onLocate }) {
 
   // State outlines on top of the fills, as a stroked overlay only. They give the
   // eye something to navigate by; 3,142 county borders alone read as noise.
+  //
+  // The nodes are kept because they are also the only geometry that knows where
+  // a *state* is: narrowing the picker to Washington zooms the map there, and
+  // that needs the state's own bounding box, not the union of its counties'.
   const stateLayer = el('g', { class: 'map-states' });
+  const stateNodes = new Map();
   for (const state of basemap.states) {
-    stateLayer.appendChild(el('path', { d: state.d, class: 'map-state' }));
+    const path = el('path', { d: state.d, class: 'map-state' });
+    stateNodes.set(state.id, path);
+    stateLayer.appendChild(path);
   }
 
   // The selection outline is a single path that moves, rather than a class
@@ -249,14 +257,24 @@ export function countyMap(mount, { basemap, onSelect, onHover, onLocate }) {
    * which is exactly what is wanted here — and it throws in browsers when the
    * element has never been laid out.
    */
-  function localBox(fips) {
-    const node = nodes.get(fips);
+  function boxOf(node) {
     if (!node) return null;
     try {
       const bbox = node.getBBox();
       return bbox.width > 0 || bbox.height > 0 ? bbox : null;
     } catch {
       return null;
+    }
+  }
+
+  const localBox = (fips) => boxOf(nodes.get(fips));
+
+  // The basemap names states by FIPS prefix and counties by postal code, so the
+  // crosswalk is already in the data and does not need a second table.
+  const stateNodeByCode = new Map();
+  for (const county of basemap.counties) {
+    if (county.st && !stateNodeByCode.has(county.st)) {
+      stateNodeByCode.set(county.st, stateNodes.get(county.id.slice(0, 2)) ?? null);
     }
   }
 
@@ -270,6 +288,27 @@ export function countyMap(mount, { basemap, onSelect, onHover, onLocate }) {
       VIEW_H / Math.max(bbox.height, 1e-6),
     );
     k = clampK(Math.max(FIT_MIN_SCALE, fit * FIT_SHARE));
+    tx = MID_X - (bbox.x + bbox.width / 2) * k;
+    ty = MID_Y - (bbox.y + bbox.height / 2) * k;
+    apply();
+  }
+
+  /**
+   * Frame one state, the whole state and no more.
+   *
+   * Unlike `zoomToCounty` this has no minimum: Texas already fills the frame at
+   * 1×, and forcing it past that would push its own edges off-screen. The fit is
+   * capped at 92% of the frame so the state does not touch the sides.
+   */
+  function zoomToState(code) {
+    const bbox = boxOf(stateNodeByCode.get(code));
+    if (!bbox) return;
+
+    const fit = Math.min(
+      VIEW_W / Math.max(bbox.width, 1e-6),
+      VIEW_H / Math.max(bbox.height, 1e-6),
+    );
+    k = clampK(fit * 0.92);
     tx = MID_X - (bbox.x + bbox.width / 2) * k;
     ty = MID_Y - (bbox.y + bbox.height / 2) * k;
     apply();
@@ -453,7 +492,7 @@ export function countyMap(mount, { basemap, onSelect, onHover, onLocate }) {
   }
 
   apply();
-  return { paint, svg, zoomToCounty, revealCounty, reset };
+  return { paint, svg, zoomToCounty, zoomToState, revealCounty, reset };
 }
 
 /**

@@ -173,3 +173,71 @@ pages in both themes: method and timing clean, index clean apart from heatmap
 cell text, which was checked separately against each cell's own fill (147 cells,
 0 under 4.5:1, both themes). Both fuzz sweeps clean. The contrast test caught a
 regression in the new palette before it shipped, which is what it is for.
+
+## County picker, state filter, and the site footer
+
+- [x] **The county `<datalist>` became a real combobox.** A datalist cannot
+      control what a row says, so a county could only ever be a bare string —
+      no state, no metro, and no indication that the rent basis selected
+      publishes nothing for it. Its matching is also the browser's: Chrome
+      matches anywhere in the string, Safari only at the start, so "Seattle"
+      found King County in one browser and nothing in the other. And it only
+      fires `change` on an exact match, so Enter on a half-typed name did
+      nothing. Replaced with the ARIA 1.2 combobox pattern in
+      `assets/combobox.js`: `aria-activedescendant`, arrows/Home/End/PageUp/
+      PageDown, Enter to commit, Escape to revert, Tab takes the highlighted
+      row, blur restores. Rows carry name, postal code, state, metro, and the
+      rent on the current basis — so a county with no data on that basis is
+      visible as such *before* it is chosen.
+- [x] **Ranked search, not a substring filter.** "king" matches King County WA,
+      Kings County NY, Kingfisher County OK and every county whose metro merely
+      contains the word. Scoring puts a leading name match above a word-start
+      above a substring above a state or metro hit, so the obvious answer is
+      first rather than wherever the alphabet puts it.
+- [x] **A state control, as a filter.** Nothing in the data ranks the counties
+      of a state — there is no population figure anywhere in the repo — so
+      choosing a state does not choose a county on the user's behalf. It
+      narrows the list, opens it already narrowed, and zooms the map to the
+      state (`zoomToState` in `map.js`, using the state's own path geometry).
+      A query with no match inside the chosen state offers "Search all states
+      instead" as a row, because an empty list with nothing explaining the
+      filter is the dead end this design would otherwise create.
+- [x] **Selects stopped looking like the operating system.** `appearance: none`
+      plus a chevron drawn from two borders on a rotated square, so the four
+      controls in the row read as four of the same thing. The rent-basis option
+      labels shortened to the source name; the hint below already carries the
+      coverage difference.
+- [x] **A real site footer**, identical on all three pages: what the site is,
+      where to go, and every source credited with *what it supplies* rather
+      than as a bare list of institutions. The freshness line is filled from
+      the committed data by `assets/footer.js`, so a stale month cannot be
+      baked into three pages at once.
+- [x] **Fancier without being louder.** A wash across the top of every page, and
+      a folio numeral in the corner of each numbered step, drawn from a CSS
+      counter so a reordered panel renumbers itself.
+
+## Verified
+
+131 unit + 45 browser tests (7 new: list behaviour, ranking, keyboard-only
+selection, Escape/blur restore, the state filter, the no-match escape hatch, and
+the footer on all three pages). Contrast measured on the combobox rows in both
+states and on every footer element: lowest is 5.10:1, floor is 4.5. Both fuzz
+sweeps clean.
+
+Two bugs found while building, both by the new tests:
+
+- The footer grid's three column minimums do not collapse, so on a 390px phone
+  the footer alone forced the document 334px wider than the screen. The layout
+  test named the width and the page. Rewritten mobile-first with explicit
+  breakpoints.
+- With zero matches the popup hid itself, which looks identical to a popup that
+  never worked — and it took Escape's only affordance with it, so a query that
+  matched nothing could not be backed out of. The list now says "No county
+  matches …", and Escape reverts whether or not anything is open.
+
+A third was avoided by measurement rather than found: the hero wash was first
+built as a pseudo-element bleeding past the measure with negative `vw` insets.
+`overflow: clip` hides the result but `scrollWidth` still grows, which the
+layout test measures — and it is a real horizontal scrollbar in any browser
+without `clip`. It is a background layer on `body` instead, which can overflow
+nothing.

@@ -111,25 +111,46 @@
 
     <div class="picker-row">
       <div class="field">
+        <label for="state-picker">State</label>
+        <div class="select-wrap">
+          <select id="state-picker"></select>
+        </div>
+        <div class="hint" id="state-hint"></div>
+      </div>
+
+      <div class="field field-county">
         <label for="county-picker">County</label>
-        <input id="county-picker" list="county-options" autocomplete="off"
-               placeholder="Start typing a county or state…">
-        <datalist id="county-options"></datalist>
+        <div class="combo">
+          <input id="county-picker" type="text" role="combobox"
+                 aria-expanded="false" aria-controls="county-listbox"
+                 aria-autocomplete="list" aria-haspopup="listbox"
+                 autocomplete="off" autocapitalize="off" autocorrect="off"
+                 spellcheck="false" placeholder="Search counties…">
+          <button type="button" id="county-toggle" class="combo-toggle"
+                  tabindex="-1" aria-label="Show the county list"></button>
+          <ul id="county-listbox" class="combo-list" role="listbox"
+              aria-label="Counties" hidden></ul>
+        </div>
         <div class="hint" id="county-hint"></div>
+        <p id="county-status" class="sr-only" role="status" aria-live="polite"></p>
       </div>
 
       <div class="field">
         <label for="unit-size">Unit size</label>
-        <select id="unit-size"></select>
+        <div class="select-wrap">
+          <select id="unit-size"></select>
+        </div>
         <div class="hint" id="unit-size-hint"></div>
       </div>
 
       <div class="field">
         <label for="rent-basis">Rent measured by</label>
-        <select id="rent-basis">
-          <option value="acs">Census ACS — every county</option>
-          <option value="zori">Zillow ZORI — current, fewer counties</option>
-        </select>
+        <div class="select-wrap">
+          <select id="rent-basis">
+            <option value="acs">Census ACS</option>
+            <option value="zori">Zillow ZORI</option>
+          </select>
+        </div>
         <div class="hint" id="rent-basis-hint"></div>
       </div>
     </div>
@@ -249,18 +270,83 @@
         wrong.
       </li>
     </ul>
-    <p class="colophon">
-      Sources:
-      <a href="https://www.zillow.com/research/data/">Zillow Research</a>,
-      <a href="https://www.census.gov/programs-surveys/acs">US Census ACS</a>,
-      <a href="https://livingwage.mit.edu/">MIT Living Wage Calculator</a>,
-      <a href="https://taxfoundation.org/data/all/state/state-income-tax-rates-2026/">Tax Foundation</a>,
-      <a href="https://www.levels.fyi/">Levels.fyi</a>,
-      <a href="https://github.com/topojson/us-atlas">us-atlas</a>.
-    </p>
   </footer>
 
 </div>
+
+<footer class="site-footer">
+  <div class="footer-inner">
+
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <p class="footer-mark">Tech Affordability Index</p>
+        <p class="footer-blurb">
+          What a place actually costs, against what you actually keep. Every US county,
+          priced on current rent and current-year tax law rather than on a gross number
+          in a job ad.
+        </p>
+        <p class="footer-freshness" id="footer-freshness"></p>
+      </div>
+
+      <nav class="footer-col" aria-label="Site">
+        <h2>The site</h2>
+        <ul>
+          <li><a href="index.html">Explore counties</a></li>
+          <li><a href="timing.html">When to move</a></li>
+          <li><a href="method.html">Method &amp; limitations</a></li>
+          <li><a href="https://github.com/varad-more/Tech-affordability-index">Source on GitHub</a></li>
+        </ul>
+      </nav>
+
+      <div class="footer-col footer-sources">
+        <h2>Where the numbers come from</h2>
+        <ul>
+          <li>
+            <a href="https://www.zillow.com/research/data/">Zillow ZORI</a>
+            <span>asking rent, monthly</span>
+          </li>
+          <li>
+            <a href="https://www.census.gov/programs-surveys/acs">US Census ACS</a>
+            <span>median gross rent, by unit size</span>
+          </li>
+          <li>
+            <a href="https://livingwage.mit.edu/">MIT Living Wage</a>
+            <span>every cost except rent</span>
+          </li>
+          <li>
+            <a href="https://taxfoundation.org/data/all/state/state-income-tax-rates-2026/">Tax Foundation</a>
+            <span>state income tax</span>
+          </li>
+          <li>
+            <a href="https://www.irs.gov/">IRS</a> and
+            <a href="https://www.ssa.gov/oact/cola/cbb.html">SSA</a>
+            <span>federal brackets, FICA, wage base</span>
+          </li>
+          <li>
+            <a href="https://www.levels.fyi/">Levels.fyi</a>
+            <span>the compensation presets</span>
+          </li>
+          <li>
+            <a href="https://github.com/topojson/us-atlas">us-atlas</a>
+            <span>county boundaries</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer-bar">
+      <p>
+        © 2026 Varad More ·
+        <a href="https://github.com/varad-more/Tech-affordability-index/blob/main/LICENSE">MIT licence</a>
+      </p>
+      <p class="footer-boast">
+        No trackers, no cookies, no analytics, no third-party requests — the typeface
+        and the map ship from this repository.
+      </p>
+    </div>
+
+  </div>
+</footer>
 
 <script type="module" src="assets/app.js"></script>
 </body>

@@ -766,14 +766,81 @@ npm run build-basemap              # boundaries + gazetteer -> projected SVG pat
     </p>
   </section>
 
-  <footer class="notes">
-    <p>
-      <a href="index.html">← Back to the index</a> ·
-      <a href="https://github.com/varad-more/Tech-affordability-index">Source on GitHub</a>
-    </p>
-  </footer>
-
 </div>
+
+<footer class="site-footer">
+  <div class="footer-inner">
+
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <p class="footer-mark">Tech Affordability Index</p>
+        <p class="footer-blurb">
+          What a place actually costs, against what you actually keep. Every US county,
+          priced on current rent and current-year tax law rather than on a gross number
+          in a job ad.
+        </p>
+        <p class="footer-freshness" id="footer-freshness"></p>
+      </div>
+
+      <nav class="footer-col" aria-label="Site">
+        <h2>The site</h2>
+        <ul>
+          <li><a href="index.html">Explore counties</a></li>
+          <li><a href="timing.html">When to move</a></li>
+          <li><a href="method.html">Method &amp; limitations</a></li>
+          <li><a href="https://github.com/varad-more/Tech-affordability-index">Source on GitHub</a></li>
+        </ul>
+      </nav>
+
+      <div class="footer-col footer-sources">
+        <h2>Where the numbers come from</h2>
+        <ul>
+          <li>
+            <a href="https://www.zillow.com/research/data/">Zillow ZORI</a>
+            <span>asking rent, monthly</span>
+          </li>
+          <li>
+            <a href="https://www.census.gov/programs-surveys/acs">US Census ACS</a>
+            <span>median gross rent, by unit size</span>
+          </li>
+          <li>
+            <a href="https://livingwage.mit.edu/">MIT Living Wage</a>
+            <span>every cost except rent</span>
+          </li>
+          <li>
+            <a href="https://taxfoundation.org/data/all/state/state-income-tax-rates-2026/">Tax Foundation</a>
+            <span>state income tax</span>
+          </li>
+          <li>
+            <a href="https://www.irs.gov/">IRS</a> and
+            <a href="https://www.ssa.gov/oact/cola/cbb.html">SSA</a>
+            <span>federal brackets, FICA, wage base</span>
+          </li>
+          <li>
+            <a href="https://www.levels.fyi/">Levels.fyi</a>
+            <span>the compensation presets</span>
+          </li>
+          <li>
+            <a href="https://github.com/topojson/us-atlas">us-atlas</a>
+            <span>county boundaries</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer-bar">
+      <p>
+        © 2026 Varad More ·
+        <a href="https://github.com/varad-more/Tech-affordability-index/blob/main/LICENSE">MIT licence</a>
+      </p>
+      <p class="footer-boast">
+        No trackers, no cookies, no analytics, no third-party requests — the typeface
+        and the map ship from this repository.
+      </p>
+    </div>
+
+  </div>
+</footer>
 
 <script type="module" src="assets/method.js"></script>
 </body>
