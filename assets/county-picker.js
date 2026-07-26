@@ -10,8 +10,18 @@
  * copy of the answer to "which counties can be offered right now".
  */
 
-import { STATES } from '../src/tax-data.js';
+import { META } from './engine.js';
 import { combobox, highlight } from './combobox.js';
+
+/**
+ * State names, read through the engine's metadata rather than imported.
+ *
+ * The Proxy is what keeps the read lazy: `META` is null until boot resolves,
+ * and a plain `const STATES = META.states` here would capture that null.
+ */
+const STATES = new Proxy({}, {
+  get: (_target, code) => META?.states?.[code],
+});
 
 /**
  * Add the derived fields the ranking reads.

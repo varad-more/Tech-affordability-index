@@ -85,30 +85,41 @@ class Datasets:
 
     # -- rent bases -------------------------------------------------------
 
-    def rent_for(self, fips: str, basis: str) -> Optional[float]:
-        """Monthly rent for a county on the selected basis, or None.
+    def rent_for(
+        self, fips: str, basis: str, unit: str = "all"
+    ) -> Optional[float]:
+        """Monthly rent for a county on the selected basis and unit size.
 
         The two bases are never mixed into one number. A single national
         ZORI/ACS multiplier was tested against the 1,351 counties carrying both
         and rejected — correlation 0.675, median error 11%, Pitkin County off by
         a factor of nine — so a county missing from the selected basis is
         missing, not imputed from the other one.
+
+        ``unit`` applies to ACS only. ZORI publishes no bedroom split at all,
+        which is why the site never offers one on that basis. Where ACS
+        suppresses a size for a county, this falls back to the all-bedroom
+        median rather than dropping the county — the pages say when it has.
         """
         table = self.acs_by_fips if basis == "acs" else self.zori_by_fips
         entry = table.get(fips)
         if entry is None:
             return None
-        # Both bases spell the all-bedroom median 'rent'. ACS carries the
-        # per-bedroom breakout alongside it; ZORI publishes no bedroom split at
-        # all, which is why the site never offers one.
+
+        # Both bases spell the all-bedroom median 'rent'.
         value = entry.get("rent")
+        if basis == "acs" and unit != "all":
+            specific = entry.get(unit)
+            if isinstance(specific, (int, float)):
+                value = specific
+
         return value if isinstance(value, (int, float)) else None
 
     def non_housing_for(self, fips: str) -> Optional[float]:
         entry = self.living_wage_by_fips.get(fips)
         return entry["nonHousingMonthly"] if entry else None
 
-    def priced_counties(self, basis: str) -> List[Dict[str, Any]]:
+    def priced_counties(self, basis: str, unit: str = "all") -> List[Dict[str, Any]]:
         """Every county with both a rent figure and a non-housing figure.
 
         A county missing either cannot be assessed at all, and is left out here
@@ -116,7 +127,7 @@ class Datasets:
         """
         out = []
         for fips, county in self.counties_by_fips.items():
-            rent = self.rent_for(fips, basis)
+            rent = self.rent_for(fips, basis, unit)
             non_housing = self.non_housing_for(fips)
             if rent is None or non_housing is None:
                 continue

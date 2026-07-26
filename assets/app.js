@@ -1,10 +1,4 @@
-import { affordability, COST_BURDENED_THRESHOLD } from '../src/affordability.js';
-import {
-  salaryBands, classify, monthlyNeeds, needsShareStep, NEEDS_SHARE_CLASSES,
-} from '../src/bands.js';
-import { totalTax } from '../src/tax.js';
-import { STATES, LOCAL, TAX_YEAR, UNMODELLED_LOCAL_TAX } from '../src/tax-data.js';
-import { CATEGORY_ORDER, CATEGORY_LABELS } from '../src/living-wage-parse.js';
+import * as engine from './engine.js';
 import {
   rankedBarChart, heatmap, rampLegend, sparkline, salaryLadder, stackedBar,
   pct, money,
@@ -16,6 +10,38 @@ import { initFooter } from './footer.js';
 import { dataUrl } from './data.js';
 
 const $ = (sel) => document.querySelector(sel);
+
+/**
+ * Model constants, fetched from /api/meta at boot.
+ *
+ * These were imported from src/tax-data.js and src/bands.js until the engine
+ * moved to Python. They are `let` rather than `const` because they arrive over
+ * the network, and they are read — never written — everywhere below, so every
+ * existing call site works unchanged. Nothing reads them before `load()` has
+ * awaited `engine.boot()`.
+ */
+let STATES = {};
+let LOCAL = {};
+let TAX_YEAR = 0;
+let UNMODELLED_LOCAL_TAX = {};
+let CATEGORY_ORDER = [];
+let CATEGORY_LABELS = {};
+let NEEDS_SHARE_CLASSES = [];
+let COST_BURDENED_THRESHOLD = 0.3;
+
+/**
+ * Everything the server computed for the current offer, basis and selection.
+ *
+ * Refreshed by `syncEngine()` and then read synchronously by every renderer, so
+ * that painting 3,142 counties and hovering one cost nothing — which is what
+ * they cost before the maths moved, and what they have to keep costing.
+ */
+const computed = {
+  snapshot: null,
+  rankAll: null,
+  rows: null,
+  assessment: null,
+};
 
 /** King County, WA — a hub with data on both rent bases and no state income tax. */
 const DEFAULT_COUNTY = '53033';
@@ -102,6 +128,22 @@ const state = {
 /* ------------------------------------------------------------------ load */
 
 async function load() {
+  // The model constants have to land before any renderer runs; everything else
+  // below is geometry and labels, which the client still owns.
+  const meta = await engine.boot();
+  ({
+    states: STATES,
+    categoryOrder: CATEGORY_ORDER,
+    categoryLabels: CATEGORY_LABELS,
+    needsShareClasses: NEEDS_SHARE_CLASSES,
+    taxYear: TAX_YEAR,
+    unmodelledLocalTax: UNMODELLED_LOCAL_TAX,
+    costBurdenedThreshold: COST_BURDENED_THRESHOLD,
+  } = meta);
+  LOCAL = Object.fromEntries(
+    Object.entries(meta.modelledLocalTax).map(([code, name]) => [code, { name }]),
+  );
+
   const [rents, profiles, countyZori, countyAcs, countyWage, basemap] = await Promise.all([
     fetch(dataUrl('rents.json')).then((r) => r.json()),
     fetch(dataUrl('profiles.json')).then((r) => r.json()),
@@ -170,8 +212,25 @@ async function load() {
   $('#loading').hidden = true;
   $('#app').hidden = false;
 
-  renderAll();
+  await renderAll();
   bindResize();
+}
+
+/**
+ * Redraw after the typing settles.
+ *
+ * Every keystroke in the salary field used to be a free recomputation; it is a
+ * request now. Without this, holding a key down queues a fetch per character
+ * and the page renders a salary the reader has already typed past. 140ms is the
+ * same settle the resize handler uses, and is below the threshold where an
+ * input stops feeling live.
+ */
+let redrawTimer;
+function scheduleRedraw() {
+  clearTimeout(redrawTimer);
+  redrawTimer = setTimeout(() => {
+    renderAll().catch(showError);
+  }, 140);
 }
 
 /**
@@ -292,19 +351,21 @@ function bindInputs() {
     $(sel).addEventListener('input', () => {
       readInputs();
       markCustom();
-      renderAll();
+      scheduleRedraw();
     });
   }
 
-  $('#rent-basis').addEventListener('change', (e) => {
+  $('#rent-basis').addEventListener('change', async (e) => {
     state.rentBasis = e.target.value;
     syncUnitSizeControl();
+    await syncEngine();
     renderCountyPanel();
     paintMap();
   });
 
-  $('#unit-size').addEventListener('change', (e) => {
+  $('#unit-size').addEventListener('change', async (e) => {
     state.unitSize = e.target.value;
+    await syncEngine();
     renderCountyPanel();
     paintMap();
   });
@@ -332,6 +393,54 @@ function markCustom() {
 
 /* ----------------------------------------------------------------- model */
 
+/**
+ * Pull everything the server computes for the current offer, basis and county.
+ *
+ * One await, four parallel requests, and then every renderer below runs
+ * synchronously off `computed`. The salary inputs fire faster than a round trip
+ * completes, so `engine.refresh` collapses concurrent calls and only the newest
+ * result is installed — otherwise the map would settle on whichever response
+ * happened to land last rather than the one the reader is looking at.
+ */
+async function syncEngine() {
+  const salary = state.offer.baseSalary;
+  const rentBasis = state.rentBasis;
+  const custom = state.activeProfileId === CUSTOM_ID;
+
+  // The unit size is part of what "rent here" means on the ACS basis, so it
+  // travels with every request that prices a county. Leaving it out was worth
+  // 222 dollars a month on King County: the page asked for a one-bedroom and
+  // the server answered with the all-bedroom median.
+  const unit = state.unitSize;
+
+  const [snapshot, rankAll, rows, assessment] = await Promise.all([
+    engine.refresh(salary, rentBasis, unit),
+    computed.rankAll ?? engine.rankAll(),
+    engine.rank(custom ? state.offer.baseProfileId ?? 'google-l3' : state.activeProfileId, {
+      baseSalary: state.offer.baseSalary,
+      rsuGrant: state.offer.rsuGrant,
+      equityHaircut: state.offer.equityHaircut,
+      bonus0: state.offer.bonuses?.[0],
+    }),
+    state.selectedCounty
+      ? engine.assessCounty(state.selectedCounty, salary, rentBasis, unit).catch(() => null)
+      : null,
+  ]);
+
+  computed.snapshot = snapshot;
+  computed.rankAll = rankAll;
+  computed.rows = rows.rows;
+  computed.assessment = assessment;
+}
+
+/** The ranking rows for one sourced profile, from the bulk response. */
+const rowsForProfile = (id) =>
+  id === CUSTOM_ID ? computed.rows ?? [] : computed.rankAll?.profiles?.[id] ?? [];
+
+/** One profile against one hub. */
+const rowFor = (profileId, hubId) =>
+  rowsForProfile(profileId).find((r) => r.hub.id === hubId) ?? null;
+
 const basis = () => RENT_BASIS[state.rentBasis];
 
 /**
@@ -357,11 +466,26 @@ function rentInfo(county) {
 
 const rentOf = (county) => rentInfo(county).rent;
 
-function locationsFor(offer) {
-  return state.rents.hubs.map((hub) => ({
-    hub,
-    result: affordability(offer, { state: hub.state, local: hub.local, rent: hub.rent }),
-  }));
+/**
+ * The active offer against every tracked hub.
+ *
+ * Shaped like the old `affordability()` return so the chart code below did not
+ * have to change: the server ranks, this maps the response onto the field names
+ * the renderers already read.
+ */
+function locationsFor() {
+  const byHub = new Map((computed.rows ?? []).map((r) => [r.hub.id, r]));
+  return state.rents.hubs.map((hub) => {
+    const row = byHub.get(hub.id);
+    return {
+      hub,
+      result: {
+        baseRatio: row?.baseRatio ?? null,
+        baseMonthlyNet: row?.baseMonthlyNet ?? 0,
+        years: row?.years ?? [],
+      },
+    };
+  });
 }
 
 function jurisdictionLabel(hub) {
@@ -370,40 +494,24 @@ function jurisdictionLabel(hub) {
 }
 
 /**
- * Monthly take-home for the current base salary, once per state.
+ * The map's fill, read straight out of the snapshot.
  *
- * Painting the map means classifying ~3,100 counties on every keystroke.
- * Take-home depends only on the tax jurisdiction, not the county, so it is
- * computed 51 times instead of 3,100 — the per-county work is then one division.
+ * This used to classify ~3,100 counties on every keystroke. The classification
+ * now happens once on the server and arrives as one integer per county, so the
+ * per-county work here is a Map insertion — and, more importantly, the class
+ * breaks live in exactly one place instead of being reimplemented next to the
+ * renderer that draws them.
  */
-function netByStateFor(gross) {
-  const cache = new Map();
-  for (const code of Object.keys(STATES)) {
-    cache.set(code, totalTax(gross, { state: code, local: null }).net / 12);
-  }
-  return cache;
-}
-
 function paintDataForCounties() {
-  const nets = netByStateFor(state.offer.baseSalary);
   const steps = new Map();
-  const bandCounts = {};
-  let withRent = 0;
-
-  for (const county of state.counties.values()) {
-    const rent = rentOf(county);
-    if (rent === null) continue;
-
-    withRent++;
-    const net = nets.get(county.state);
-    const needs = monthlyNeeds(rent, county.nonHousingMonthly);
-    const share = net > 0 ? needs / net : Infinity;
-
-    steps.set(county.fips, needsShareStep(share) ?? 6);
-    const band = classify(net, needs).id;
-    bandCounts[band] = (bandCounts[band] ?? 0) + 1;
+  for (const [fips, step] of Object.entries(computed.snapshot?.counties ?? {})) {
+    steps.set(fips, step[0]);
   }
-  return { steps, bandCounts, withRent };
+  return {
+    steps,
+    bandCounts: computed.snapshot?.bandCounts ?? {},
+    withRent: computed.snapshot?.withRent ?? 0,
+  };
 }
 
 const selectedCounty = () => state.counties.get(state.selectedCounty);
@@ -452,7 +560,7 @@ function renderPresets() {
     b.addEventListener('click', () => {
       selectProfile(id);
       syncPresets();
-      renderAll();
+      renderAll().catch(showError);
     });
     mount.appendChild(b);
   };
@@ -554,7 +662,7 @@ function buildCountyPicker() {
 }
 
 /** The one path into a county selection, whatever triggered it. */
-function selectCounty(fips, { reveal = true } = {}) {
+async function selectCounty(fips, { reveal = true } = {}) {
   if (!state.counties.has(fips) || fips === state.selectedCounty) {
     // Even a no-op has to put the label back: the box may be holding a query.
     state.picker.sync();
@@ -562,6 +670,7 @@ function selectCounty(fips, { reveal = true } = {}) {
   }
 
   state.selectedCounty = fips;
+  await syncEngine();
   renderCountyPanel();
   paintMap();
 
@@ -619,14 +728,17 @@ function renderCountyPanel() {
     return;
   }
 
-  const location = { state: county.state, local, rent, nonHousingMonthly: county.nonHousingMonthly };
+  // The ladder, the tax breakdown and the verdict all come from one server
+  // assessment rather than three separate computations that could disagree.
+  const assessment = computed.assessment;
+  if (!assessment?.available) return;
 
-  const bands = salaryBands(location);
-  const tax = totalTax(state.offer.baseSalary, { state: county.state, local });
-  const net = tax.net / 12;
-  const needs = bands.monthlyNeeds;
-  const band = classify(net, needs);
-  const surplus = net - needs;
+  const bands = assessment.bands;
+  const tax = assessment.tax;
+  const net = assessment.monthlyNet;
+  const needs = assessment.monthlyNeeds;
+  const band = assessment.band;
+  const surplus = assessment.monthlySurplus;
 
   const verdict = $('#verdict');
   verdict.className = `verdict band-${band.id}`;
@@ -840,14 +952,17 @@ function showCountyTooltip(fips, event) {
       `<div class="t-title">${county?.label ?? 'This county'}</div>` +
       `<div class="t-row">No ${basis().short} rent figure published</div>`;
   } else {
-    const local = localCodeFor(county);
-    const net = totalTax(state.offer.baseSalary, { state: county.state, local }).net / 12;
-    const needs = monthlyNeeds(rent, county.nonHousingMonthly);
-    const band = classify(net, needs);
+    // Straight out of the snapshot: hovering cannot afford a round trip, and
+    // recomputing here in JavaScript is what used to make the tooltip and the
+    // fill disagree over the five New York boroughs and Philadelphia.
+    const row = computed.snapshot?.counties?.[county.fips];
+    const net = row?.[4] ?? 0;
+    const needs = row?.[1] ?? rent + county.nonHousingMonthly;
+    const band = row ? computed.snapshot.bands[row[3]] : null;
 
     tip.innerHTML =
       `<div class="t-title">${county.label}</div>` +
-      `<div class="t-row"><strong>${band.label}</strong>: necessities take ${pct(needs / net, 0)} of pay</div>` +
+      `<div class="t-row"><strong>${band?.label ?? 'Not measured'}</strong>: necessities take ${pct(needs / net, 0)} of pay</div>` +
       `<div class="t-row">Rent ${money(rent)}/mo</div>` +
       `<div class="t-row">Everything else ${money(county.nonHousingMonthly)}/mo</div>` +
       `<div class="t-row">Take-home ${money(net)}/mo</div>`;
@@ -893,7 +1008,7 @@ function paintMap() {
 /* ------------------------------------------------------------ hub charts */
 
 function renderBars() {
-  const rows = locationsFor(state.offer)
+  const rows = locationsFor()
     .filter((r) => r.result.baseRatio !== null)
     .sort((a, b) => a.result.baseRatio - b.result.baseRatio)
     .map(({ hub, result }) => ({
@@ -944,14 +1059,13 @@ function emptyChart(mount, message) {
 function renderHeatmap() {
   const profiles = comparableProfiles();
 
-  const ordered = locationsFor(state.offer)
+  const ordered = locationsFor()
     .sort((a, b) => (a.result.baseRatio ?? 1) - (b.result.baseRatio ?? 1))
     .map((r) => r.hub);
 
   const cells = ordered.map((hub) =>
     profiles.map((p) => {
-      const res = affordability(p, { state: hub.state, local: hub.local, rent: hub.rent });
-      const y1 = res.years[0];
+      const y1 = rowFor(p.id, hub.id)?.years?.[0] ?? { gross: 0, monthlyNet: 0, ratio: null };
       return {
         value: y1.ratio,
         tooltip: `
@@ -985,7 +1099,7 @@ function renderMultiples() {
 
   const results = comparableProfiles().map((p) => ({
     profile: p,
-    res: affordability(p, { state: hub.state, local: hub.local, rent: hub.rent }),
+    res: { years: rowFor(p.id, hub.id)?.years ?? [] },
   }));
 
   // One shared vertical scale across all panels, so the shapes are genuinely
@@ -1048,7 +1162,7 @@ function renderMultiples() {
 }
 
 function renderTable() {
-  const rows = locationsFor(state.offer)
+  const rows = locationsFor()
     .filter((r) => r.result.baseRatio !== null)
     .sort((a, b) => a.result.baseRatio - b.result.baseRatio);
 
@@ -1076,7 +1190,15 @@ function renderTable() {
   $('#table').innerHTML = `${head}<tbody>${body}</tbody>`;
 }
 
-function renderAll() {
+/**
+ * Fetch once, then draw everything from what came back.
+ *
+ * The await is the only place the network enters a render. Every function it
+ * calls reads `computed` synchronously, so the page still paints in one frame
+ * once the data is in hand.
+ */
+async function renderAll() {
+  await syncEngine();
   renderCountyPanel();
   paintMap();
   renderBars();
@@ -1085,9 +1207,31 @@ function renderAll() {
   renderTable();
 }
 
+/**
+ * Surface a failure where the reader is looking.
+ *
+ * Every figure on this page is now fetched, so a request that fails has to say
+ * so rather than leave the last good numbers on screen under a new salary —
+ * which would be a page quietly lying about what it is showing.
+ */
+function showError(err) {
+  const banner = $('#load-error') ?? (() => {
+    const el = document.createElement('div');
+    el.id = 'load-error';
+    el.className = 'loading';
+    el.setAttribute('role', 'alert');
+    $('#app').prepend(el);
+    return el;
+  })();
+  banner.hidden = false;
+  banner.innerHTML =
+    `<strong>Could not reach the server.</strong> ${err.message}. ` +
+    `The figures below may be out of date; reload to try again.`;
+}
+
 load().catch((err) => {
+  $('#loading').hidden = false;
   $('#loading').innerHTML =
-    `<strong>Could not load data.</strong> ${err.message}. If you opened this file directly, ` +
-    `serve it over HTTP instead. ES modules and fetch do not work from <code>file://</code>. ` +
-    `Run <code>npm run serve</code>.`;
+    `<strong>Could not load data.</strong> ${err.message}. ` +
+    `The site needs its server running — start it with <code>npm run serve</code>.`;
 });

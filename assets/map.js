@@ -525,6 +525,12 @@ export function countyMap(mount, {
    * @param {string|null} selectedFips
    */
   function paint(stepByFips, selectedFips) {
+    // The fills used to be computed in the same tick the map was built in.
+    // They arrive over the network now, so between building and painting there
+    // is a real window where every county is drawn no-data. This marks the end
+    // of that window — for the tests, and for anyone styling a loading state.
+    mount.dataset.painted = stepByFips.size > 0 ? 'true' : 'false';
+
     for (const [fips, node] of nodes) {
       const step = stepByFips.get(fips);
       node.setAttribute(

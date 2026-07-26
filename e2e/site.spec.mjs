@@ -52,6 +52,9 @@ async function settled(page, selector) {
 async function ready(page) {
   await page.goto('/');
   await expect(page.locator('#map .map-county').first()).toBeVisible({ timeout: 30_000 });
+  // The map is built before its fills are fetched, so being present is not the
+  // same as being painted. Every assertion downstream reads real figures.
+  await expect(page.locator('#map')).toHaveAttribute('data-painted', 'true', { timeout: 30_000 });
   await expect(page.locator('.stat')).toHaveCount(4);
 }
 
@@ -824,7 +827,9 @@ test.describe('affordability index', () => {
     await expect(page.locator('#sources')).toContainText('B25031');
     await expect(page.locator('#sources')).toContainText('one bedroom is the default');
     await expect(page.locator('#timing')).toContainText(/centred moving average/i);
-    await expect(page.locator('a[href="../"]').first()).toBeVisible();
+    // Absolute, not '../': the pages are routed from one root now, and the old
+    // relative form only resolved by accident of how deep the file sat on disk.
+    await expect(page.locator('a[href="/"]').first()).toBeVisible();
 
     expect(errors).toEqual([]);
   });
@@ -1231,10 +1236,16 @@ test.describe('affordability index', () => {
     // A directory index means /timing/ is the real page. Without the trailing
     // slash the server has to redirect, or every relative link on the page
     // resolves one level too high and the whole page 404s its own assets.
+    // 308, not 301: Flask issues a permanent redirect that preserves the method,
+    // where the old static server hand-rolled a 301. Both are permanent and both
+    // are correct; the assertion names the one the application actually sends.
     for (const dir of ['states', 'timing', 'method']) {
       const bare = await page.request.get(`/${dir}`, { maxRedirects: 0 });
-      expect(bare.status(), `/${dir} should redirect to /${dir}/`).toBe(301);
-      expect(bare.headers().location).toBe(`/${dir}/`);
+      expect(bare.status(), `/${dir} should redirect to /${dir}/`).toBe(308);
+      // Flask sends an absolute Location; the old static server sent a relative
+      // one. Both are legal, so this asserts the destination rather than the
+      // spelling of it.
+      expect(new URL(bare.headers().location, 'http://localhost').pathname).toBe(`/${dir}/`);
     }
 
     // No page answers at a .html address. Stubs used to sit at these two,
@@ -1301,6 +1312,8 @@ test.describe('affordability index', () => {
     const errors = watchForErrors(page);
     await page.goto('/states/');
     await expect(page.locator('#state-map .map-county').first()).toBeVisible({ timeout: 30_000 });
+    // Present is not painted: the fills arrive from the server a round trip later.
+    await expect(page.locator('#state-map')).toHaveAttribute('data-painted', 'true', { timeout: 30_000 });
 
     await expect(page.locator('#state-map .map-county')).toHaveCount(COUNTY_COUNT);
     await expect(page.locator('#map-modes button[data-mode="county"]'))
@@ -1335,6 +1348,8 @@ test.describe('affordability index', () => {
     const errors = watchForErrors(page);
     await page.goto('/states/');
     await expect(page.locator('#state-map .map-county').first()).toBeVisible({ timeout: 30_000 });
+    // Present is not painted: the fills arrive from the server a round trip later.
+    await expect(page.locator('#state-map')).toHaveAttribute('data-painted', 'true', { timeout: 30_000 });
 
     await page.locator('#map-modes button[data-mode="state"]').click();
     await expect(page.locator('#map-modes button[data-mode="state"]'))

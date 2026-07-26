@@ -6,9 +6,7 @@
  * other 136 are a decade of history that can say how rent moves through a year.
  */
 
-import {
-  MONTH_NAMES, MONTH_SHORT, seasonalSaving, MEANINGFUL_AMPLITUDE,
-} from '../src/seasonality.js';
+import * as engine from './engine.js';
 import {
   timeSeries, divergingBars, rankedBarChart, pct, money,
 } from './charts.js';
@@ -30,7 +28,28 @@ const state = {
   selected: DEFAULT_COUNTY,
 };
 
+/**
+ * Calendar labels and the amplitude floor, from /api/meta at boot.
+ *
+ * The 1.5% floor is a modelling judgement, not a label: below it a swing is
+ * indistinguishable from noise in a smoothed index. It belongs with the model
+ * that produced the amplitude, not next to the sentence that reports it.
+ */
+let MONTH_NAMES = [];
+let MONTH_SHORT = [];
+let MEANINGFUL_AMPLITUDE = 0.015;
+
+/** The saving for the selected county, refreshed whenever the selection moves. */
+let saving = { monthly: 0, annual: 0 };
+
 async function load() {
+  const meta = await engine.boot();
+  ({
+    monthNames: MONTH_NAMES,
+    monthShort: MONTH_SHORT,
+    meaningfulAmplitude: MEANINGFUL_AMPLITUDE,
+  } = meta);
+
   const data = await fetch(dataUrl('rent-history.json')).then((r) => r.json());
 
   state.data = data;
@@ -56,7 +75,7 @@ async function load() {
   $('#loading').hidden = true;
   $('#app').hidden = false;
 
-  renderAll();
+  await renderAll();
 
   let last = window.innerWidth;
   let timer;
@@ -111,6 +130,17 @@ function buildCountyPicker() {
   });
 }
 
+async function refreshSaving() {
+  const county = state.counties.get(state.selected);
+  if (!county?.season) {
+    saving = { monthly: 0, annual: 0 };
+    return;
+  }
+  const latest = [...county.history].reverse().find((v) => v !== null);
+  const res = await engine.timing(state.selected, latest).catch(() => null);
+  saving = res?.saving ?? { monthly: 0, annual: 0 };
+}
+
 function selectCounty(fips) {
   if (!state.counties.has(fips) || fips === state.selected) {
     // Even a no-op has to put the label back: the box may be holding a query.
@@ -118,7 +148,7 @@ function selectCounty(fips) {
     return;
   }
   state.selected = fips;
-  renderAll();
+  renderAll().catch(() => {});
 }
 
 /* ---------------------------------------------------------------- render */
@@ -142,8 +172,6 @@ function renderVerdict() {
     return;
   }
 
-  const latest = [...county.history].reverse().find((v) => v !== null);
-  const saving = seasonalSaving(county.season, latest);
   const strong = county.amplitude >= MEANINGFUL_AMPLITUDE;
 
   verdict.className = 'verdict';
@@ -282,7 +310,8 @@ function renderLeaderboard() {
   });
 }
 
-function renderAll() {
+async function renderAll() {
+  await refreshSaving();
   renderVerdict();
   renderSeasonal();
   renderHistory();
@@ -290,7 +319,12 @@ function renderAll() {
 }
 
 load().catch((err) => {
+  // Un-hide first. The reveal happens before the last render, so a failure
+  // after that point was writing this message into a container that had
+  // already been hidden — the page looked fine and was half-drawn.
+  $('#loading').hidden = false;
+  $('#app').hidden = true;
   $('#loading').innerHTML =
-    `<strong>Could not load rent history.</strong> ${err.message}. If you opened this file ` +
-    `directly, serve it over HTTP instead: run <code>npm run serve</code>.`;
+    `<strong>Could not load rent history.</strong> ${err.message}. ` +
+    `The site needs its server running — start it with <code>npm run serve</code>.`;
 });

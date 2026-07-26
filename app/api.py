@@ -29,9 +29,16 @@ from .bands import (
     assess,
     classify,
     needs_share_step,
+    salary_bands,
 )
 from .datasets import CATEGORY_LABELS, CATEGORY_ORDER, data
-from .state_rollup import roll_up_states
+from .seasonality import (
+    MEANINGFUL_AMPLITUDE,
+    MONTH_NAMES,
+    MONTH_SHORT,
+    seasonal_saving,
+)
+from .state_rollup import roll_up_state, roll_up_states
 from .tax import total_tax
 from .tax_data import LOCAL, STATES, TAX_YEAR, UNMODELLED_LOCAL_TAX
 
@@ -44,6 +51,19 @@ BASES = ("zori", "acs")
 
 #: The darkest class, used when take-home cannot cover necessities at all.
 LAST_STEP = len(NEEDS_SHARE_BREAKS)
+
+
+#: ACS bedroom breakouts the pages may ask for. ZORI has no bedroom split, so
+#: the parameter is accepted and ignored there rather than rejected — the page
+#: keeps its selection while you switch bases and back.
+UNITS = ("all", "studio", "br1", "br2", "br3")
+
+
+def _unit() -> str:
+    unit = request.args.get("unit", "all")
+    if unit not in UNITS:
+        raise ValueError("Unknown unit size: {!r}".format(unit))
+    return unit
 
 
 def _basis() -> str:
@@ -122,13 +142,36 @@ def meta():
         bands=[_as_json(band) for band in BANDS],
         needsShareBreaks=list(NEEDS_SHARE_BREAKS),
         needsShareClasses=[_as_json(c) for c in NEEDS_SHARE_CLASSES],
+        monthNames=list(MONTH_NAMES),
+        monthShort=list(MONTH_SHORT),
+        meaningfulAmplitude=MEANINGFUL_AMPLITUDE,
         survivalShare=SURVIVAL_SHARE,
         comfortableShare=COMFORTABLE_SHARE,
         costBurdenedThreshold=COST_BURDENED_THRESHOLD,
         severelyCostBurdenedThreshold=SEVERELY_COST_BURDENED_THRESHOLD,
         unmodelledLocalTax=UNMODELLED_LOCAL_TAX,
         modelledLocalTax={code: loc.name for code, loc in LOCAL.items()},
-        states={code: state.name for code, state in STATES.items()},
+        # Shaped exactly like the tax-data.js export the pages used to import,
+        # because they still read it that way: STATES[code].name, .brackets,
+        # .standardDeduction, .payroll. Flattening it to {code: name} made every
+        # state name on two pages render as "undefined" and the By-state tax
+        # panel throw on a bracket table that was not there.
+        #
+        # `from` rather than `lower`: the field is named `lower` in Python only
+        # because `from` is a keyword there. It is not a keyword in JavaScript,
+        # and the client contract predates the port.
+        states={
+            code: {
+                "name": state.name,
+                "standardDeduction": state.standard_deduction,
+                "brackets": [{"from": b.lower, "rate": b.rate} for b in state.brackets],
+                "payroll": [
+                    {"label": levy.label, "rate": levy.rate, "cap": levy.cap}
+                    for levy in state.payroll
+                ],
+            }
+            for code, state in STATES.items()
+        },
         rents={
             "asOf": data.county_rents.get("asOf"),
             "fetchedAt": data.county_rents.get("fetchedAt"),
@@ -150,13 +193,14 @@ def profiles():
 @bp.get("/counties")
 def counties():
     """Every county that can be assessed on the selected basis."""
-    return jsonify(basis=_basis(), counties=data.priced_counties(_basis()))
+    return jsonify(basis=_basis(), unit=_unit(), counties=data.priced_counties(_basis(), _unit()))
 
 
 @bp.get("/assess")
 def assess_county():
     """The full picture for one salary in one county."""
     basis = _basis()
+    unit = _unit()
     fips = request.args.get("fips")
     if not fips:
         raise ValueError("fips is required")
@@ -165,7 +209,7 @@ def assess_county():
     if county is None:
         return jsonify(error="Unknown county: {}".format(fips)), 404
 
-    rent = data.rent_for(fips, basis)
+    rent = data.rent_for(fips, basis, unit)
     non_housing = data.non_housing_for(fips)
     if rent is None or non_housing is None:
         # Deliberately not an error: "no figure is published for this county on
@@ -175,6 +219,7 @@ def assess_county():
             name=county.get("name"),
             state=county.get("st"),
             basis=basis,
+            unit=unit,
             available=False,
             missing="rent" if rent is None else "nonHousing",
         )
@@ -191,6 +236,7 @@ def assess_county():
         name=county.get("name"),
         state=state,
         basis=basis,
+        unit=unit,
         available=True,
         local=local,
         salary=salary,
@@ -228,6 +274,7 @@ def snapshot():
     tripled the payload, and this is fetched on every salary change.
     """
     basis = _basis()
+    unit = _unit()
     salary = _float_arg("salary", 156000.0)
 
     band_ids = [band.id for band in BANDS]
@@ -246,7 +293,7 @@ def snapshot():
     counties: Dict[str, Any] = {}
     band_counts: Dict[str, int] = {}
 
-    for county in data.priced_counties(basis):
+    for county in data.priced_counties(basis, unit):
         state = county["state"]
         local = _local_for(state, county["fips"])
         key = (state, local)
@@ -276,6 +323,7 @@ def snapshot():
 
     return jsonify(
         basis=basis,
+        unit=unit,
         salary=salary,
         netByState=net_by_state,
         bands=[_as_json(band) for band in BANDS],
@@ -289,7 +337,8 @@ def snapshot():
 def states():
     """Per-state rollups: cheapest, median and dearest county, and the spread."""
     basis = _basis()
-    rollups = roll_up_states(data.priced_counties(basis))
+    unit = _unit()
+    rollups = roll_up_states(data.priced_counties(basis, unit))
 
     out = {}
     for code, rollup in rollups.items():
@@ -306,7 +355,7 @@ def states():
             # which states are thin depends on the basis.
             "spread": rollup.spread if rollup.n > 1 else None,
         }
-    return jsonify(basis=basis, states=out)
+    return jsonify(basis=basis, unit=unit, states=out)
 
 
 def _rank_rows(profile):
@@ -333,6 +382,81 @@ def _rank_rows(profile):
     # A hub with no computable ratio sorts last rather than crashing the sort.
     rows.sort(key=lambda row: row["baseRatio"] if row["baseRatio"] is not None else 9e9)
     return rows
+
+
+@bp.get("/state/<code>")
+def state_detail(code: str):
+    """Everything the By-state page needs about one state.
+
+    The page asks four questions of the same state — where the median county
+    sits, what the ladder there looks like, what the tax is, and what
+    "comfortable" costs in every county inside it. Each is cheap; the last is a
+    bisection per county, which is why they arrive together rather than as one
+    request per chart.
+    """
+    basis = _basis()
+    unit = _unit()
+    salary = _float_arg("salary", 130000.0)
+
+    code = code.upper()
+    if code not in STATES:
+        return jsonify(error="Unknown state: {}".format(code)), 404
+
+    inside = [c for c in data.priced_counties(basis, unit) if c["state"] == code]
+    if not inside:
+        # A state can have counties on one basis and none on the other. That is
+        # an answer, not an error — the page says so rather than drawing a blank.
+        return jsonify(
+            code=code, name=STATES[code].name, basis=basis, unit=unit, available=False
+        )
+
+    rollup = roll_up_state(inside)
+    tax = total_tax(salary, code)
+    monthly_net = tax.net / 12
+
+    median = rollup.median
+    ladder = salary_bands(
+        median["rent"], median["nonHousingMonthly"], code
+    )
+
+    counties = []
+    for county in inside:
+        rung = salary_bands(county["rent"], county["nonHousingMonthly"], code)
+        share = county["needs"] / monthly_net if monthly_net > 0 else None
+        counties.append(
+            {
+                "fips": county["fips"],
+                "name": county["name"],
+                "rent": county["rent"],
+                "nonHousingMonthly": county["nonHousingMonthly"],
+                "needs": county["needs"],
+                "comfortable": rung.comfortable,
+                "needsShare": share,
+                "step": needs_share_step(share) if share is not None else LAST_STEP,
+            }
+        )
+
+    return jsonify(
+        code=code,
+        name=STATES[code].name,
+        basis=basis,
+        unit=unit,
+        salary=salary,
+        available=True,
+        tax=_as_json(tax),
+        monthlyNet=monthly_net,
+        rollup={
+            "n": rollup.n,
+            "median": rollup.median,
+            "cheapest": rollup.cheapest,
+            "dearest": rollup.dearest,
+            "spread": rollup.spread if rollup.n > 1 else None,
+        },
+        band=_as_json(classify(monthly_net, median["needs"])),
+        bands=_as_json(ladder),
+        counties=counties,
+        unmodelledLocalTax=UNMODELLED_LOCAL_TAX.get(code),
+    )
 
 
 @bp.get("/rank")
@@ -369,6 +493,15 @@ def rank():
         value = _float_arg(field)
         if value is not None:
             overrides[field] = value
+
+    # Only the first year's bonus is editable on the page; the later years stay
+    # whatever the preset says, because a sign-on bonus is a year-one event and
+    # copying it across four years would invent three payments nobody offered.
+    bonus0 = _float_arg("bonus0")
+    if bonus0 is not None:
+        bonuses = list(profile.get("bonuses") or [])
+        overrides["bonuses"] = [bonus0] + bonuses[1:] if bonuses else [bonus0]
+
     if overrides:
         profile = dict(profile, **overrides)
 
@@ -377,12 +510,26 @@ def rank():
 
 @bp.get("/timing/<fips>")
 def timing(fips: str):
-    """The rent-history and seasonal index for one county."""
+    """The rent-history and seasonal index for one county.
+
+    The saving is computed here rather than shipped as a formula, so the money
+    the timing page quotes and the money the method page describes come from one
+    implementation. ``rent`` defaults to the county's own latest observation.
+    """
     county = data.history_by_fips.get(fips)
     if county is None:
         return jsonify(error="No rent history for {}".format(fips)), 404
+
+    saving = None
+    if county.get("season"):
+        recent = [v for v in county["history"] if v is not None]
+        rent = _float_arg("rent", recent[-1] if recent else None)
+        if rent:
+            saving = _as_json(seasonal_saving(county["season"], rent))
+
     return jsonify(
         county=county,
+        saving=saving,
         firstMonth=data.rent_history["firstMonth"],
         lastMonth=data.rent_history["lastMonth"],
     )

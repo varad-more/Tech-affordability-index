@@ -22,10 +22,12 @@ export default defineConfig({
 
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 
-  // Serves the real published files — the same flat directory GitHub Pages gets.
+  // The real application, not a static mirror of it. Every figure the assertions
+  // below check is computed by the Flask engine on the way out, so a suite run
+  // against anything else would be testing a stand-in.
   webServer: {
-    command: 'node scripts/serve.mjs',
-    url: `http://localhost:${PORT}`,
+    command: `.venv/bin/python -m flask --app wsgi run --port ${PORT}`,
+    url: `http://localhost:${PORT}/api/meta`,
     reuseExistingServer: !process.env.CI,
     stdout: 'ignore',
   },

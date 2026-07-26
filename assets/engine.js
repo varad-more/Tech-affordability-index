@@ -53,8 +53,10 @@ export async function boot() {
  * would repaint from whichever response happened to land last rather than from
  * the one the reader is actually looking at.
  */
-export async function refresh(salary, basis = 'zori') {
-  const url = `/api/snapshot?salary=${encodeURIComponent(salary)}&basis=${encodeURIComponent(basis)}`;
+export async function refresh(salary, basis = 'zori', unit = 'all') {
+  const url =
+    `/api/snapshot?salary=${encodeURIComponent(salary)}&basis=${encodeURIComponent(basis)}` +
+    `&unit=${encodeURIComponent(unit)}`;
   const request = json(url).then((data) => {
     // Only the newest request may install its result. An earlier one resolving
     // late must not overwrite a newer one that already landed.
@@ -107,24 +109,68 @@ export const pricedFips = () => Object.keys(snapshot?.counties ?? {});
  * per-county, and carrying a ladder for 1,351 counties in every repaint would
  * cost far more than the one request a selection costs.
  */
-export function assessCounty(fips, salary, basis = 'zori') {
+export function assessCounty(fips, salary, basis = 'zori', unit = 'all') {
   return json(
     `/api/assess?fips=${encodeURIComponent(fips)}&salary=${encodeURIComponent(salary)}` +
-      `&basis=${encodeURIComponent(basis)}`,
+      `&basis=${encodeURIComponent(basis)}&unit=${encodeURIComponent(unit)}`,
   );
 }
 
 /** Per-state rollups: cheapest, median and dearest county, and the spread. */
-export function stateRollups(basis = 'zori') {
-  return json(`/api/states?basis=${encodeURIComponent(basis)}`);
+export function stateRollups(basis = 'zori', unit = 'all') {
+  return json(
+    `/api/states?basis=${encodeURIComponent(basis)}&unit=${encodeURIComponent(unit)}`,
+  );
 }
 
-/** The reference offers against the tracked hubs, cheapest burden first. */
-export function rank(profileId) {
-  return json(`/api/rank?profile=${encodeURIComponent(profileId)}`);
+/**
+ * Everything about one state: its rollup, ladder, tax, and what "comfortable"
+ * costs in each of its counties.
+ *
+ * That last part is a bisection per county, which is why the By-state page asks
+ * for it once per selection rather than once per row it draws.
+ */
+export function stateDetail(code, salary, basis = 'zori', unit = 'all') {
+  return json(
+    `/api/state/${encodeURIComponent(code)}?salary=${encodeURIComponent(salary)}` +
+      `&basis=${encodeURIComponent(basis)}&unit=${encodeURIComponent(unit)}`,
+  );
 }
 
-/** Rent history and seasonal index for one county. */
-export function timing(fips) {
-  return json(`/api/timing/${encodeURIComponent(fips)}`);
+/**
+ * Every sourced offer against every tracked hub, in one response.
+ *
+ * The heatmap needs 7 x 21 and the ranked bars need one row of it, so asking
+ * per profile would put six avoidable round trips in front of the page settling.
+ */
+export function rankAll() {
+  return json('/api/rank');
+}
+
+/**
+ * One offer against the tracked hubs, cheapest burden first.
+ *
+ * `overrides` carries the four editable fields. They are applied server-side on
+ * top of the named preset rather than posted as a whole profile, which keeps
+ * the vesting schedule and the equity haircut authoritative there instead of
+ * being round-tripped through the browser where they could drift.
+ */
+export function rank(profileId, overrides = {}) {
+  const params = new URLSearchParams({ profile: profileId });
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value !== null && value !== undefined) params.set(key, value);
+  }
+  return json(`/api/rank?${params}`);
+}
+
+/**
+ * Rent history and seasonal index for one county.
+ *
+ * `rent` prices the seasonal swing in money. It defaults server-side to the
+ * county's own latest observation, so passing it is an override rather than a
+ * requirement.
+ */
+export function timing(fips, rent) {
+  const query = rent ? `?rent=${encodeURIComponent(rent)}` : '';
+  return json(`/api/timing/${encodeURIComponent(fips)}${query}`);
 }

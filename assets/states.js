@@ -14,13 +14,7 @@
  * wearing one name, and the page says so.
  */
 
-import {
-  salaryBands, classify, monthlyNeeds, needsShareStep, NEEDS_SHARE_CLASSES,
-} from '../src/bands.js';
-import { totalTax } from '../src/tax.js';
-import { STATES, LOCAL, TAX_YEAR, UNMODELLED_LOCAL_TAX } from '../src/tax-data.js';
-import { CATEGORY_ORDER, CATEGORY_LABELS } from '../src/living-wage-parse.js';
-import { rollUpStates } from '../src/state-rollup.js';
+import * as engine from './engine.js';
 import {
   heatmap, rampLegend, rankedBarChart, showTooltip, hideTooltip, pct, money,
 } from './charts.js';
@@ -104,9 +98,65 @@ const state = {
   asOf: null,
 };
 
+/**
+ * Model constants, fetched from /api/meta at boot. See assets/app.js — same
+ * arrangement, same reason: they arrive over the network but are only ever
+ * read, so every call site below works unchanged.
+ */
+let STATES = {};
+let LOCAL = {};
+let TAX_YEAR = 0;
+let UNMODELLED_LOCAL_TAX = {};
+let CATEGORY_ORDER = [];
+let CATEGORY_LABELS = {};
+let NEEDS_SHARE_CLASSES = [];
+
+/** What the server computed for the current salary, basis and selected state. */
+const computed = {
+  snapshot: null,
+  states: null,
+  detail: null,
+};
+
+/**
+ * Pull the three things this page is drawn from.
+ *
+ * The national snapshot paints the county view, the rollups shade the state
+ * view, and the per-state detail answers everything about the selection — its
+ * ladder, its tax and what "comfortable" costs in each of its counties. The
+ * last is a bisection per county, which is exactly why it is one request.
+ */
+async function syncEngine() {
+  // UNIT is this page's fixed one-bedroom default; it has no size control, but
+  // the figure still has to be the one the copy claims it is.
+  const [snapshot, states, detail] = await Promise.all([
+    engine.refresh(state.salary, state.rentBasis, UNIT),
+    engine.stateRollups(state.rentBasis, UNIT),
+    engine
+      .stateDetail(state.selected, state.salary, state.rentBasis, UNIT)
+      .catch(() => null),
+  ]);
+  computed.snapshot = snapshot;
+  computed.states = states;
+  computed.detail = detail;
+}
+
 /* ------------------------------------------------------------------ load */
 
 async function load() {
+  const meta = await engine.boot();
+  ({
+    states: STATES,
+    categoryOrder: CATEGORY_ORDER,
+    categoryLabels: CATEGORY_LABELS,
+    needsShareClasses: NEEDS_SHARE_CLASSES,
+    taxYear: TAX_YEAR,
+    unmodelledLocalTax: UNMODELLED_LOCAL_TAX,
+  } = meta);
+  LOCAL = Object.fromEntries(
+    Object.entries(meta.modelledLocalTax).map(([code, name]) => [code, { name }]),
+  );
+
   const [rents, countyZori, countyAcs, countyWage, basemap] = await Promise.all([
     fetch(dataUrl('rents.json')).then((r) => r.json()),
     fetch(dataUrl('county-rents.json')).then((r) => r.json()),
@@ -148,7 +198,10 @@ async function load() {
   state.byFips = new Map(state.counties.map((c) => [c.fips, c]));
 
   // Rollups first: the masthead counts the states that survived, and the picker
-  // is built from the ones that have data on the basis currently selected.
+  // is built from the ones that have data on the basis currently selected. They
+  // are computed on the server now, so this has to wait for the fetch rather
+  // than running straight off the county list the way it used to.
+  await syncEngine();
   rebuildRollups();
   renderMasthead();
   bindInputs();
@@ -167,7 +220,7 @@ async function load() {
   $('#app').hidden = false;
 
   buildMap();
-  recompute();
+  await recompute();
   frameSelectedState();
   bindResize();
 }
@@ -200,11 +253,7 @@ const selected = () => state.rollups.get(state.selected);
  * basis changes rather than being cached against a partial redraw.
  */
 function rebuildRollups() {
-  const priced = state.counties
-    .filter((c) => rentOf(c) !== null)
-    .map((c) => ({ ...c, rent: rentOf(c), needs: monthlyNeeds(rentOf(c), c.nonHousingMonthly) }));
-
-  state.rollups = rollUpStates(priced);
+  state.rollups = new Map(Object.entries(computed.states?.states ?? {}));
   state.ordered = [...state.rollups.entries()]
     .map(([code, roll]) => ({ code, roll }))
     .sort((a, b) => b.roll.median.needs - a.roll.median.needs);
@@ -217,7 +266,8 @@ function rebuildRollups() {
 }
 
 /** Everything the rent basis touches, which is everything. */
-function recompute() {
+async function recompute() {
+  await syncEngine();
   rebuildRollups();
   renderStateSelect();
   renderForState();
@@ -240,17 +290,20 @@ function renderForState() {
  * The map is a picker as much as it is a picture, so a click on it has to reach
  * the dropdown, and a change in the dropdown has to reach the map.
  */
-function selectState(code) {
+async function selectState(code) {
   if (code === state.selected || !state.rollups.has(code)) return;
   state.selected = code;
   $('#state-select').value = code;
+  computed.detail = await engine
+    .stateDetail(code, state.salary, state.rentBasis, UNIT)
+    .catch(() => null);
   renderStateSelect();
   renderForState();
   frameSelectedState();
 }
 
 /** The tax picture for the salary on screen, in the selected state. */
-const taxHere = () => totalTax(state.salary, { state: state.selected });
+const taxHere = () => computed.detail?.tax ?? { gross: state.salary, net: 0, effectiveRate: 0, statePayrollDetail: [] };
 
 /* ------------------------------------------------------------- masthead */
 
@@ -316,7 +369,7 @@ function bindInputs() {
 
   $('#rent-basis').addEventListener('change', (e) => {
     state.rentBasis = e.target.value;
-    recompute();
+    recompute().catch(() => {});
   });
 
   $('#map-modes').addEventListener('click', (e) => {
@@ -337,14 +390,10 @@ function renderVerdict() {
   const roll = selected();
   const name = STATES[state.selected].name;
 
-  const tax = taxHere();
-  const net = tax.net / 12;
-  const band = classify(net, roll.median.needs);
-  const bands = salaryBands({
-    state: state.selected,
-    rent: roll.median.rent,
-    nonHousingMonthly: roll.median.nonHousingMonthly,
-  });
+  const net = computed.detail?.monthlyNet ?? 0;
+  const band = computed.detail?.band;
+  const bands = computed.detail?.bands;
+  if (!band || !bands) return;
 
   const verdict = $('#verdict');
   verdict.className = `verdict band-${band.id}`;
@@ -409,12 +458,11 @@ function renderVerdict() {
 }
 
 /** What "comfortable" costs in one county, in gross salary. */
+const laddersByFips = () =>
+  new Map((computed.detail?.counties ?? []).map((c) => [c.fips, c.comfortable]));
+
 function salaryFor(county) {
-  return salaryBands({
-    state: county.state,
-    rent: county.rent,
-    nonHousingMonthly: county.nonHousingMonthly,
-  }).comfortable;
+  return laddersByFips().get(county.fips) ?? null;
 }
 
 /* ------------------------------------------------------------ tax detail */
@@ -554,19 +602,9 @@ function renderMap() {
  * the only thing on the map that a state-level cache could not express.
  */
 function paintCountyView() {
-  const nets = new Map();
-  const netFor = (code) => {
-    if (!nets.has(code)) nets.set(code, totalTax(state.salary, { state: code }).net / 12);
-    return nets.get(code);
-  };
-
   const steps = new Map();
-  for (const county of state.counties) {
-    const rent = rentOf(county);
-    if (rent === null) continue;
-    const net = netFor(county.state);
-    const needs = monthlyNeeds(rent, county.nonHousingMonthly);
-    steps.set(county.fips, needsShareStep(net > 0 ? needs / net : Infinity) ?? 6);
+  for (const [fips, row] of Object.entries(computed.snapshot?.counties ?? {})) {
+    steps.set(fips, row[0]);
   }
 
   // No county is ever the selection on this page, so `paint` is passed none and
@@ -729,12 +767,14 @@ function showCountyTip(fips, event) {
     return;
   }
 
-  const net = totalTax(state.salary, { state: county.state }).net / 12;
-  const needs = monthlyNeeds(rent, county.nonHousingMonthly);
+  const row = computed.snapshot?.counties?.[county.fips];
+  const net = row?.[4] ?? 0;
+  const needs = row?.[1] ?? rent + county.nonHousingMonthly;
+  const bandLabel = row ? computed.snapshot.bands[row[3]].label : 'Not measured';
 
   showTooltip(
     `<div class="t-title">${county.name}, ${county.state}</div>` +
-    `<div class="t-row"><strong>${classify(net, needs).label}</strong>: necessities take ` +
+    `<div class="t-row"><strong>${bandLabel}</strong>: necessities take ` +
     `${pct(needs / net, 0)} of take-home</div>` +
     `<div class="t-row">Rent ${money(rent)}/mo, everything else ${money(county.nonHousingMonthly)}/mo</div>` +
     `<div class="t-row">${money(needs)}/mo for one adult, all in</div>`,
@@ -791,7 +831,14 @@ const SHORT_LABELS = {
   Medical: 'Healthcare',
 };
 
-const COLUMNS = [
+/**
+ * Heatmap columns: the total, rent, then each budget line.
+ *
+ * A function rather than a constant, because the category list arrives from
+ * /api/meta at boot. Built at module scope it captured an empty array, and
+ * every tooltip past the second column then read `undefined.title`.
+ */
+const columns = () => [
   { title: 'Total', subtitle: 'per month' },
   { title: 'Rent', subtitle: 'measured' },
   ...CATEGORY_ORDER.map((key) => ({
@@ -803,12 +850,13 @@ const COLUMNS = [
 /** One heatmap row: the total, rent, then each budget line, all monthly dollars. */
 function budgetRow(county) {
   const parts = [county.needs, county.rent, ...(county.expenses ?? CATEGORY_ORDER.map(() => null))];
+  const cols = columns();
 
   return parts.map((value, i) => ({
     value,
     tooltip:
       `<div class="t-title">${county.name}</div>` +
-      `<div class="t-row">${COLUMNS[i].title}: <strong>${value === null ? 'no figure' : `${money(value)}/mo`}</strong></div>` +
+      `<div class="t-row">${cols[i].title}: <strong>${value === null ? 'no figure' : `${money(value)}/mo`}</strong></div>` +
       `<div class="t-row">${money(county.needs)}/mo for one adult, all in</div>`,
   }));
 }
@@ -818,9 +866,9 @@ function renderCountyHeat() {
   const name = STATES[state.selected].name;
   // Dearest first, so the row a reader is most likely looking for is at the top
   // rather than at the bottom of a scroll.
-  const counties = [...state.counties]
-    .filter((c) => c.state === state.selected && rentOf(c) !== null)
-    .map((c) => ({ ...c, rent: rentOf(c), needs: monthlyNeeds(rentOf(c), c.nonHousingMonthly) }))
+  const byFips = new Map(state.counties.map((c) => [c.fips, c]));
+  const counties = [...(computed.detail?.counties ?? [])]
+    .map((c) => ({ ...byFips.get(c.fips), ...c }))
     .sort((a, b) => b.needs - a.needs);
 
   $('#inside-state').textContent = name;
@@ -834,7 +882,7 @@ function renderCountyHeat() {
     rowLabels: counties.map((c) =>
       c.name.replace(/ (County|Parish|Borough|Census Area|Municipality|city)$/, ''),
     ),
-    colLabels: COLUMNS,
+    colLabels: columns(),
     cells: counties.map(budgetRow),
     format: (v) => money(v),
     scale: 'column',
@@ -856,7 +904,7 @@ function renderStateHeat() {
 
   heatmap($('#state-heat'), {
     rowLabels: rows.map(({ code }) => STATES[code].name),
-    colLabels: COLUMNS,
+    colLabels: columns(),
     cells: rows.map(({ code, roll }) =>
       budgetRow({ ...roll.median, name: `${roll.median.name}, ${code}` }),
     ),
@@ -924,7 +972,12 @@ function renderSpread() {
 /* ------------------------------------------------------------------ boot */
 
 load().catch((err) => {
+  // Un-hide first. The reveal happens before the last render, so a failure
+  // after that point was writing this message into a container that had
+  // already been hidden — the page looked fine and was half-drawn.
+  $('#loading').hidden = false;
+  $('#app').hidden = true;
   $('#loading').innerHTML =
-    `<strong>Could not load county data.</strong> ${err.message}. If you opened this file ` +
-    `directly, serve it over HTTP instead: run <code>npm run serve</code>.`;
+    `<strong>Could not load county data.</strong> ${err.message}. ` +
+    `The site needs its server running — start it with <code>npm run serve</code>.`;
 });
