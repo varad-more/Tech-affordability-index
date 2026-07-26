@@ -174,9 +174,12 @@ pinning it.
 **No number is invented to fill a gap.** Where a figure cannot be obtained
 honestly the site says so instead: counties with no rent data are drawn in a
 no-data fill rather than shaded as cheap, Connecticut is left unshaded because
-its 2022 planning regions do not join to Zillow's county geography, and there is
-no state choropleth anywhere on the site, because a state has no single value
-that a fill could honestly stand for.
+its 2022 planning regions do not join to Zillow's county geography, and no map
+shades a state by what it costs, because no cost figure stands for a whole
+state. The state page's map does shade whole states, but by the spread between
+their dearest and cheapest county, which is a property of the state itself; DC
+has one county and so is drawn as no-data rather than as the most uniform state
+in the country.
 
 **The seasonal maths is tested against synthetic series.** A classical
 multiplicative decomposition is easy to get subtly wrong: a trailing average

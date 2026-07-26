@@ -809,11 +809,9 @@ let legendBasis = null;
 function syncMapLegend() {
   if (legendBasis === state.rentBasis) return;
   legendBasis = state.rentBasis;
-  rampLegendFor(
-    $('#map-legend'),
-    NEEDS_SHARE_CLASSES,
-    `${basis().short} publishes no rent figure for this county.`,
-  );
+  rampLegendFor($('#map-legend'), NEEDS_SHARE_CLASSES, {
+    noDataNote: `${basis().short} publishes no rent figure for this county.`,
+  });
 }
 
 let tooltipEl;

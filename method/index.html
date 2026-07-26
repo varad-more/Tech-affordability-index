@@ -467,13 +467,20 @@
 
     <h3>Why counties, and why not states</h3>
     <p>
-      An earlier draft shaded whole states. That cannot work: Texas contains both Austin
-      and Dallas, and California contains four metros that disagree with each other, so
-      any state fill would have had to invent a number none of them supports. A choropleth
-      is only honest when there is genuinely one value per shaded area, which is true at
-      county level and false at state level. The state page exists for the questions where
-      one number per state <em>is</em> the honest answer, and it reports a range rather
-      than shading the state as though it were uniform.
+      An earlier draft shaded whole states by cost. That cannot work: Texas contains both
+      Austin and Dallas, and California contains four metros that disagree with each other,
+      so any state fill would have had to invent a number none of them supports. A
+      choropleth is only honest when there is genuinely one value per shaded area, which is
+      true of cost at county level and false at state level.
+    </p>
+    <p>
+      The <a href="../states/">state page</a> carries the same map with a second view, and
+      that view does shade whole states. What it shades is not cost. It is the spread
+      between a state's dearest and cheapest county, which is a property of the state
+      itself rather than a figure imputed to every square mile in it, so one fill is a true
+      statement about the whole shaded area. The class breaks are fixed at 15, 25, 35, 45,
+      60 and 80 percent dearer, held constant across both rent bases so that changing the
+      basis shows a change in the data rather than a change in the scale.
     </p>
 
     <h3>Projection</h3>

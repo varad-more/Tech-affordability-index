@@ -14,13 +14,17 @@
  * wearing one name, and the page says so.
  */
 
-import { salaryBands, classify, monthlyNeeds } from '../src/bands.js';
+import {
+  salaryBands, classify, monthlyNeeds, needsShareStep, NEEDS_SHARE_CLASSES,
+} from '../src/bands.js';
 import { totalTax } from '../src/tax.js';
 import { STATES, LOCAL, TAX_YEAR, UNMODELLED_LOCAL_TAX } from '../src/tax-data.js';
 import { CATEGORY_ORDER, CATEGORY_LABELS } from '../src/living-wage-parse.js';
 import { rollUpStates } from '../src/state-rollup.js';
-import { heatmap, rampLegend, rankedBarChart, pct, money } from './charts.js';
-import { BAND_STEP } from './map.js';
+import {
+  heatmap, rampLegend, rankedBarChart, showTooltip, hideTooltip, pct, money,
+} from './charts.js';
+import { countyMap, rampLegendFor, BAND_STEP } from './map.js';
 import { initTheme } from './theme.js';
 import { initFooter } from './footer.js';
 import { dataUrl } from './data.js';
@@ -52,8 +56,45 @@ const RENT_BASIS = {
  */
 const UNIT = 'br1';
 
+/**
+ * Class breaks for the map's state view, on the spread between a state's
+ * dearest and cheapest county.
+ *
+ * Round numbers rather than quantiles, so the legend says something a reader can
+ * carry away ("under 15% dearer") instead of "the lowest seventh of states". They
+ * are also held fixed across both rent bases, which is what makes switching the
+ * basis show a change in the data rather than a change in the scale underneath it.
+ */
+const SPREAD_BREAKS = [1.15, 1.25, 1.35, 1.45, 1.6, 1.8];
+
+/** Legend copy per class, lightest (most uniform state) first. */
+const SPREAD_CLASSES = [
+  { label: 'under 15% dearer', note: 'one market; a single figure for the state is nearly fair' },
+  { label: '15-25%' },
+  { label: '25-35%' },
+  { label: '35-45%' },
+  { label: '45-60%' },
+  { label: '60-80%' },
+  { label: 'over 80% dearer', note: 'the state name is doing almost no work' },
+];
+
+/** Which spread class a state falls in: 0 (most uniform) to 6 (least). */
+function spreadStep(spread) {
+  if (spread === null || spread === undefined || !Number.isFinite(spread)) return null;
+  for (let i = 0; i < SPREAD_BREAKS.length; i++) {
+    if (spread <= SPREAD_BREAKS[i]) return i;
+  }
+  return SPREAD_BREAKS.length;
+}
+
 const state = {
   counties: null,
+  /** The same counties by FIPS, for the map's hover, which arrives as a FIPS. */
+  byFips: null,
+  basemap: null,
+  map: null,
+  /** 'county' shades what a place costs; 'state' shades how much a state hides. */
+  mapMode: 'county',
   rollups: null,
   /** Rollups keyed by state, ordered by their median county's monthly cost. */
   ordered: null,
@@ -75,6 +116,7 @@ async function load() {
   ]);
 
   state.asOf = rents.asOf;
+  state.basemap = basemap;
 
   const zoriByFips = new Map(countyZori.counties.map((c) => [c.fips, c]));
   const acsByFips = new Map(countyAcs.counties.map((c) => [c.fips, c]));
@@ -103,24 +145,30 @@ async function load() {
     });
   }
 
+  state.byFips = new Map(state.counties.map((c) => [c.fips, c]));
+
   // Rollups first: the masthead counts the states that survived, and the picker
   // is built from the ones that have data on the basis currently selected.
   rebuildRollups();
   renderMasthead();
   bindInputs();
   initTheme(() => {
-    // Both heatmaps pick their label ink from the resolved surface.
+    // Both heatmaps pick their label ink from the resolved surface. The map does
+    // not: its fills are CSS custom properties, which retint themselves.
     renderCountyHeat();
     renderStateHeat();
   });
   initFooter();
 
   // Reveal before the first render: both heatmaps size their cells to the width
-  // actually available, and a hidden container measures zero.
+  // actually available, and the map frames the selected state from a bounding
+  // box. A hidden container measures zero for both.
   $('#loading').hidden = true;
   $('#app').hidden = false;
 
+  buildMap();
   recompute();
+  frameSelectedState();
   bindResize();
 }
 
@@ -173,6 +221,7 @@ function recompute() {
   rebuildRollups();
   renderStateSelect();
   renderForState();
+  renderMap();
   renderStateHeat();
   renderSpread();
 }
@@ -182,6 +231,22 @@ function renderForState() {
   renderVerdict();
   renderTaxFacts();
   renderCountyHeat();
+  outlineSelectedState();
+}
+
+/**
+ * Move the selection to one state, from wherever the request came from.
+ *
+ * The map is a picker as much as it is a picture, so a click on it has to reach
+ * the dropdown, and a change in the dropdown has to reach the map.
+ */
+function selectState(code) {
+  if (code === state.selected || !state.rollups.has(code)) return;
+  state.selected = code;
+  $('#state-select').value = code;
+  renderStateSelect();
+  renderForState();
+  frameSelectedState();
 }
 
 /** The tax picture for the salary on screen, in the selected state. */
@@ -231,11 +296,7 @@ function renderStateSelect() {
 }
 
 function bindInputs() {
-  $('#state-select').addEventListener('change', (e) => {
-    state.selected = e.target.value;
-    renderStateSelect();
-    renderForState();
-  });
+  $('#state-select').addEventListener('change', (e) => selectState(e.target.value));
 
   $('#salary').addEventListener('input', (e) => {
     const value = Number(e.target.value);
@@ -245,11 +306,28 @@ function bindInputs() {
     state.salary = value;
     renderVerdict();
     renderTaxFacts();
+    // The county shading is a share of take-home, so it moves with the salary.
+    // The state shading is a ratio of two costs, and does not.
+    if (state.mapMode === 'county') {
+      paintCountyView();
+      renderMapText();
+    }
   });
 
   $('#rent-basis').addEventListener('change', (e) => {
     state.rentBasis = e.target.value;
     recompute();
+  });
+
+  $('#map-modes').addEventListener('click', (e) => {
+    const mode = e.target.closest('button')?.dataset.mode;
+    if (!mode || mode === state.mapMode) return;
+    state.mapMode = mode;
+    renderMap();
+    // County view exists to look inside one state, so it frames the selected
+    // one. State view is a comparison across all of them and needs the country.
+    if (mode === 'county') state.map.zoomToState(state.selected);
+    else state.map.reset();
   });
 }
 
@@ -408,6 +486,285 @@ function renderTaxFacts() {
 
 /** The two cities whose local tax the engine models, by state. */
 const LOCAL_BY_STATE = { NY: 'NYC', PA: 'PHL' };
+
+/* ------------------------------------------------------------------- map */
+
+/**
+ * One map, two things it can shade, and only one of them is a state.
+ *
+ * The county view is the honest one and is the default: every county carries its
+ * own rent and its own budget, so a fill per county means exactly what a reader
+ * takes it to mean. It opens framed on the selected state, because "by state" on
+ * this site means "the counties inside one state", not "a state as one place".
+ *
+ * The state view shades whole states, which the rest of this site refuses to do
+ * for cost — and still refuses. What it shades is the *spread*: how much dearer a
+ * state's most expensive county is than its cheapest. That is a property of the
+ * state itself rather than a figure imputed to every square mile in it, so a
+ * single fill is a true statement about the whole shaded area. It is also the
+ * page's argument drawn as a picture: the darker a state, the less its name told
+ * you.
+ */
+function buildMap() {
+  state.map = countyMap($('#state-map'), {
+    basemap: state.basemap,
+    label:
+      'Map of the United States, with two views. In the county view every county is ' +
+      'shaded by the share of take-home pay that rent and necessities consume. In the ' +
+      'state view every state is shaded by how much dearer its most expensive county is ' +
+      'than its cheapest. Zoom with the plus and minus keys, pan with the arrow keys.',
+    locateLabel: 'Zoom to the selected state',
+    onLocate: () => state.selected,
+    // County view, on a page about states: a click on a county is a request for
+    // the state it sits in.
+    onSelect: (fips) => {
+      const county = state.byFips.get(fips);
+      if (county) selectState(county.state);
+    },
+    onSelectState: (code) => selectState(code),
+    onHover: (fips, event) => (fips ? showCountyTip(fips, event) : hideTooltip()),
+    onHoverState: (code, event) => (code ? showStateTip(code, event) : hideTooltip()),
+  });
+}
+
+/** Repaint whichever layer is the data layer, and resync everything around it. */
+function renderMap() {
+  const isCounty = state.mapMode === 'county';
+
+  for (const button of $('#map-modes').querySelectorAll('button')) {
+    button.setAttribute('aria-pressed', String(button.dataset.mode === state.mapMode));
+  }
+
+  state.map.setStateMode(!isCounty);
+  if (isCounty) paintCountyView();
+  else paintStateView();
+
+  syncMapLegend();
+  renderMapText();
+  renderMapTable();
+}
+
+/**
+ * Shade every county by what share of take-home its necessities consume.
+ *
+ * Take-home is cached per state rather than computed per county: the figure
+ * depends only on the salary and the jurisdiction, and there are 51 of those
+ * against 3,142 counties. Local city tax is left out here, exactly as on the
+ * explore page's map, because it applies to six counties and would otherwise be
+ * the only thing on the map that a state-level cache could not express.
+ */
+function paintCountyView() {
+  const nets = new Map();
+  const netFor = (code) => {
+    if (!nets.has(code)) nets.set(code, totalTax(state.salary, { state: code }).net / 12);
+    return nets.get(code);
+  };
+
+  const steps = new Map();
+  for (const county of state.counties) {
+    const rent = rentOf(county);
+    if (rent === null) continue;
+    const net = netFor(county.state);
+    const needs = monthlyNeeds(rent, county.nonHousingMonthly);
+    steps.set(county.fips, needsShareStep(net > 0 ? needs / net : Infinity) ?? 6);
+  }
+
+  // No county is ever the selection on this page, so `paint` is passed none and
+  // the outline is handed the whole state instead.
+  state.map.paint(steps, null);
+  state.map.outlineState(state.selected);
+}
+
+/** Shade every state by its internal spread. */
+function paintStateView() {
+  const steps = new Map();
+  for (const [code, roll] of state.rollups) {
+    // A state with one county priced has a spread of exactly 1.0, which would
+    // land it in the lightest class and say "this state is one market". It has
+    // not been measured. DC is permanently in this position, and on the Zillow
+    // basis a thin state can fall into it too, so it is checked rather than
+    // special-cased by name.
+    steps.set(code, roll.n > 1 ? spreadStep(roll.spread) : null);
+  }
+
+  // The county fills underneath are left as they were: every state is filled
+  // with either a ramp step or the no-data grey, so none of them shows through.
+  state.map.paintStates(steps);
+  state.map.outlineState(state.selected);
+}
+
+/** Mark the selected state, without repainting 3,142 fills. */
+function outlineSelectedState() {
+  if (!state.map) return;
+  state.map.outlineState(state.selected);
+  renderMapText();
+}
+
+/**
+ * Frame the selected state, which is a response to *picking* one.
+ *
+ * Kept apart from the outline on purpose: switching the rent basis repaints the
+ * map but must not yank the view back, or a reader who had panned somewhere to
+ * compare two sources loses their place on every switch.
+ */
+function frameSelectedState() {
+  if (state.mapMode === 'county') state.map.zoomToState(state.selected);
+}
+
+/**
+ * Rebuilt only when it would actually change: the legend's no-data wording names
+ * whichever source is silent, and that depends on both the view and the basis.
+ */
+let legendKey = null;
+function syncMapLegend() {
+  const key = `${state.mapMode}:${state.rentBasis}`;
+  if (legendKey === key) return;
+  legendKey = key;
+
+  if (state.mapMode === 'county') {
+    rampLegendFor($('#state-map-legend'), NEEDS_SHARE_CLASSES, {
+      noDataNote: `${basis().short} publishes no rent figure for this county.`,
+    });
+  } else {
+    rampLegendFor($('#state-map-legend'), SPREAD_CLASSES, {
+      caption: 'How much dearer a state\'s dearest county is than its cheapest',
+      noDataLabel: 'no range',
+      noDataNote:
+        'Fewer than two counties here carry a rent figure, so there are no two ends to ' +
+        'compare. DC is one county and can never have a range.',
+    });
+  }
+}
+
+function renderMapText() {
+  const roll = selected();
+  const name = STATES[state.selected].name;
+
+  if (state.mapMode === 'county') {
+    const priced = state.counties.filter((c) => rentOf(c) !== null).length;
+
+    $('#state-map-intro').textContent =
+      `Every county with a ${basis().short} rent figure, shaded by what share of ` +
+      `take-home pay rent and necessities consume on ${money(state.salary)}. The frame ` +
+      `opens on ${name}. Click any county to move the whole page to its state, or reset ` +
+      `the view to see the country at once.`;
+
+    $('#map-mode-note').textContent =
+      'Cost is shaded at county level and nowhere else. A state fill claims that one ' +
+      'figure stands for the whole shaded area, and no cost figure ever does.';
+
+    $('#state-map-caption').textContent =
+      `${priced.toLocaleString()} counties shaded, ${roll.n.toLocaleString()} of them in ` +
+      `${name} · from ${money(roll.cheapest.needs)} a month in ${roll.cheapest.name} to ` +
+      `${money(roll.dearest.needs)} in ${roll.dearest.name} · the unshaded counties are ` +
+      `ones ${basis().short} does not price, not cheap ones`;
+    return;
+  }
+
+  const ranked = spreadRanked();
+
+  $('#state-map-intro').textContent =
+    `The one figure that genuinely belongs to a whole state: how much dearer its most ` +
+    `expensive county is than its cheapest. Darker means the state's name tells you ` +
+    `less. Click a state to move the rest of the page to it.`;
+
+  $('#map-mode-note').textContent =
+    'This is not what a state costs, and no view here will shade that. It is how far ' +
+    'apart the two ends of the state are, which is a fact about the state rather than ' +
+    'about any place inside it.';
+
+  const ends = ranked.length
+    ? `widest is ${STATES[ranked[0].code].name} at ${ranked[0].roll.spread.toFixed(2)}×, ` +
+      `tightest is ${STATES[ranked.at(-1).code].name} at ${ranked.at(-1).roll.spread.toFixed(2)}×`
+    : 'no state has two counties priced, so nothing is shaded';
+
+  $('#state-map-caption').textContent =
+    `${ranked.length} states with two or more counties priced on ${basis().short} · ` +
+    `${ends} · ${name} is ` +
+    `${roll.n > 1 && roll.spread !== null ? `${roll.spread.toFixed(2)}×` : 'a single county, so it has no range'}`;
+}
+
+/** Every state that has two ends to compare, widest spread first. */
+function spreadRanked() {
+  return [...state.ordered]
+    .filter(({ roll }) => roll.n > 1 && roll.spread !== null)
+    .sort((a, b) => b.roll.spread - a.roll.spread);
+}
+
+/**
+ * The table alternative for the state view.
+ *
+ * The county view's equivalent is the grid in step four, which lists every
+ * county of the selected state with every line of its budget; repeating a
+ * 3,142-row version of it here would serve nobody.
+ */
+function renderMapTable() {
+  const rows = spreadRanked();
+
+  $('#state-map-table').innerHTML = `
+    <thead><tr>
+      <th>State</th><th>Counties</th><th>Cheapest county</th><th>Dearest county</th>
+      <th>Spread</th>
+    </tr></thead>
+    <tbody>${rows.map(({ code, roll }) => `
+      <tr>
+        <td>${STATES[code].name}</td>
+        <td>${roll.n.toLocaleString()}</td>
+        <td>${roll.cheapest.name}, ${money(roll.cheapest.needs)}/mo</td>
+        <td>${roll.dearest.name}, ${money(roll.dearest.needs)}/mo</td>
+        <td>${roll.spread.toFixed(2)}×</td>
+      </tr>`).join('')}</tbody>`;
+}
+
+function showCountyTip(fips, event) {
+  const county = state.byFips.get(fips);
+  const rent = county ? rentOf(county) : null;
+
+  if (!county || rent === null) {
+    showTooltip(
+      `<div class="t-title">${county ? `${county.name}, ${county.state}` : 'This county'}</div>` +
+      `<div class="t-row">No ${basis().short} rent figure published</div>`,
+      event,
+    );
+    return;
+  }
+
+  const net = totalTax(state.salary, { state: county.state }).net / 12;
+  const needs = monthlyNeeds(rent, county.nonHousingMonthly);
+
+  showTooltip(
+    `<div class="t-title">${county.name}, ${county.state}</div>` +
+    `<div class="t-row"><strong>${classify(net, needs).label}</strong>: necessities take ` +
+    `${pct(needs / net, 0)} of take-home</div>` +
+    `<div class="t-row">Rent ${money(rent)}/mo, everything else ${money(county.nonHousingMonthly)}/mo</div>` +
+    `<div class="t-row">${money(needs)}/mo for one adult, all in</div>`,
+    event,
+  );
+}
+
+function showStateTip(code, event) {
+  const name = STATES[code]?.name ?? code;
+  const roll = state.rollups.get(code);
+
+  if (!roll) {
+    showTooltip(
+      `<div class="t-title">${name}</div>` +
+      `<div class="t-row">No county here joins a ${basis().short} rent figure to a cost of living</div>`,
+      event,
+    );
+    return;
+  }
+
+  showTooltip(
+    `<div class="t-title">${name}</div>` +
+    (roll.n > 1 && roll.spread !== null
+      ? `<div class="t-row"><strong>${roll.spread.toFixed(2)}×</strong> across ${roll.n.toLocaleString()} counties</div>`
+      : '<div class="t-row">One county priced, so there is no range</div>') +
+    `<div class="t-row">${roll.dearest.name} ${money(roll.dearest.needs)}/mo</div>` +
+    `<div class="t-row">${roll.cheapest.name} ${money(roll.cheapest.needs)}/mo</div>`,
+    event,
+  );
+}
 
 /* -------------------------------------------------------------- heatmaps */
 

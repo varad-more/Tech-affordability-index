@@ -45,35 +45,49 @@ function clearMount(mount) {
   tooltipNode?.classList.remove('on');
 }
 
+/** Keep the tooltip on screen: flip it to the other side of the cursor at an edge. */
+function place(event) {
+  const tip = tooltip();
+  const pad = 14;
+  const rect = tip.getBoundingClientRect();
+  let x = event.clientX + pad;
+  let y = event.clientY + pad;
+  if (x + rect.width > window.innerWidth - 8) x = event.clientX - rect.width - pad;
+  if (y + rect.height > window.innerHeight - 8) y = event.clientY - rect.height - pad;
+  tip.style.left = `${Math.max(8, x)}px`;
+  tip.style.top = `${Math.max(8, y)}px`;
+}
+
+/**
+ * Show the tooltip for a mark this module did not draw.
+ *
+ * The map does its own hit testing — 3,142 paths built once and repainted, never
+ * per-mark listeners — so it cannot use `attachTooltip`. Going through the same
+ * node keeps one tooltip on the page rather than two that can both be visible.
+ */
+export function showTooltip(html, event) {
+  const tip = tooltip();
+  tip.innerHTML = html;
+  tip.classList.add('on');
+  place(event);
+}
+
+export function hideTooltip() {
+  tooltipNode?.classList.remove('on');
+}
+
 /**
  * Attach a hover tooltip. The dataviz guidance treats this as default, not a
  * nicety: an HTML chart is interactive, so every mark should be interrogable.
  */
 function attachTooltip(target, html) {
-  const show = (event) => {
-    const tip = tooltip();
-    tip.innerHTML = html;
-    tip.classList.add('on');
-    move(event);
-  };
-  const move = (event) => {
-    const tip = tooltip();
-    const pad = 14;
-    const rect = tip.getBoundingClientRect();
-    let x = event.clientX + pad;
-    let y = event.clientY + pad;
-    if (x + rect.width > window.innerWidth - 8) x = event.clientX - rect.width - pad;
-    if (y + rect.height > window.innerHeight - 8) y = event.clientY - rect.height - pad;
-    tip.style.left = `${Math.max(8, x)}px`;
-    tip.style.top = `${Math.max(8, y)}px`;
-  };
-  const hide = () => tooltip().classList.remove('on');
+  const show = (event) => showTooltip(html, event);
 
   target.addEventListener('mouseenter', show);
-  target.addEventListener('mousemove', move);
-  target.addEventListener('mouseleave', hide);
+  target.addEventListener('mousemove', place);
+  target.addEventListener('mouseleave', hideTooltip);
   target.addEventListener('focus', show);
-  target.addEventListener('blur', hide);
+  target.addEventListener('blur', hideTooltip);
 }
 
 /**

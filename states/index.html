@@ -102,6 +102,30 @@
 
   <section class="panel">
     <p class="eyebrow step">Step two</p>
+    <h2>The same question, on a map</h2>
+    <p class="sub" id="state-map-intro"></p>
+
+    <div class="control-group">
+      <span class="control-label" id="map-mode-label">What the shading means</span>
+      <div class="presets" id="map-modes" role="group" aria-labelledby="map-mode-label">
+        <button type="button" data-mode="county" aria-pressed="true">Every county</button>
+        <button type="button" data-mode="state" aria-pressed="false">Whole states</button>
+      </div>
+      <p class="control-note" id="map-mode-note"></p>
+    </div>
+
+    <div id="state-map"></div>
+    <div id="state-map-legend"></div>
+    <p class="sub" id="state-map-caption" style="margin-top:12px"></p>
+
+    <details class="table-view">
+      <summary>Every state as a table, ranked by spread</summary>
+      <div class="chart-scroll"><table id="state-map-table"></table></div>
+    </details>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow step">Step three</p>
     <h2>What this state is like to be taxed in</h2>
     <p class="sub">
       The rules, not a rating. Two states with the same top rate can be very different at
@@ -116,7 +140,7 @@
   </section>
 
   <section class="panel">
-    <p class="eyebrow step">Step three</p>
+    <p class="eyebrow step">Step four</p>
     <h2>Inside <span id="inside-state">the state</span></h2>
     <p class="sub" id="county-heat-intro"></p>
 
@@ -163,9 +187,11 @@
         county is nothing like California's median resident.
       </li>
       <li>
-        <strong>There is no state fill anywhere on this site.</strong> A choropleth is only
-        honest when one value stands for the whole shaded area, which is false at state
-        level. That is why this page reports a range and names both ends instead.
+        <strong>No map on this site shades a state by what it costs.</strong> A choropleth
+        is only honest when one value stands for the whole shaded area, and "what this
+        state costs" never does. The state view of the map above shades the spread
+        instead, which is a fact about the state as a whole rather than about any place
+        inside it. For cost, switch the map to counties.
       </li>
       <li>
         <strong>State tax is only part of the local picture.</strong> Local income tax is

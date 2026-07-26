@@ -1412,6 +1412,22 @@ svg text { font-family: var(--font); }
   stroke-linejoin: round;
 }
 
+/* When the map shades whole states, the outline layer becomes the data layer:
+   states take the fill and the pointer, and the counties beneath step out of the
+   way entirely. Nothing else about the map changes — same geometry, same zoom,
+   same pan. The fill itself is set inline by `paintStates`, because a `fill`
+   attribute would lose to the `fill: none` above. */
+.map-frame.is-state-mode .map-states { pointer-events: auto; }
+.map-frame.is-state-mode .map-counties { pointer-events: none; }
+
+.map-frame.is-state-mode .map-state {
+  stroke-width: 0.9;
+  cursor: pointer;
+}
+
+.map-frame.is-state-mode .map-state:hover { stroke: var(--ink-1); stroke-width: 1.6; }
+.map-frame.is-state-mode.is-panning .map-state { cursor: grabbing; }
+
 .map-selected {
   fill: none;
   stroke: var(--ink-1);
@@ -2077,6 +2093,10 @@ td .swatch {
   .footer-col h2,
   .footer-sources li span,
   .map-legend-caption,
+  /* The whole status strip, not only the zoom reading: the gesture hint beside
+     it inherits from `.map-status` and was left at 11.5px. It is hidden below
+     560px, so only the narrow band above that ever showed it. */
+  .map-status,
   .map-zoom-level {
     font-size: 0.75rem;
   }

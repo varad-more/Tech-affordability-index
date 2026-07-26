@@ -96,11 +96,32 @@ function iconButton(action, label, extraClass = '') {
  * @param {object}   basemap    parsed data/us-basemap.json
  * @param {Function} onSelect   called with a county FIPS when one is clicked
  * @param {Function} onHover    called with a county FIPS (or null) on hover
- * @param {Function} onLocate   called when "zoom to county" is pressed; returns a FIPS
- * @returns {{ paint: Function, svg: SVGElement, zoomToCounty: Function,
+ * @param {Function} onSelectState called with a postal code when a state is
+ *   clicked, in state mode only
+ * @param {Function} onHoverState  called with a postal code (or null) on hover,
+ *   in state mode only
+ * @param {Function} onLocate   called when the locate button is pressed. Return
+ *   a 5-digit county FIPS to frame a county, or a 2-letter postal code to frame
+ *   a whole state; the two never collide, so no flag is needed to tell them apart
+ * @param {string}   locateLabel button title, for pages whose locate target is
+ *   not a county
+ * @param {string}   label       the SVG's accessible name
+ * @returns {{ paint: Function, paintStates: Function, setStateMode: Function,
+ *            outlineState: Function, svg: SVGElement, zoomToCounty: Function,
  *            zoomToState: Function, revealCounty: Function, reset: Function }}
  */
-export function countyMap(mount, { basemap, onSelect, onHover, onLocate }) {
+export function countyMap(mount, {
+  basemap,
+  onSelect,
+  onHover,
+  onSelectState,
+  onHoverState,
+  onLocate,
+  locateLabel = 'Zoom to the selected county',
+  label =
+    'County-level map of the United States, shaded by the share of take-home pay that ' +
+    'rent and necessities consume. Zoom with the plus and minus keys, pan with the arrow keys.',
+}) {
   mount.replaceChildren();
   mount.classList.add('map-frame');
 
@@ -117,9 +138,7 @@ export function countyMap(mount, { basemap, onSelect, onHover, onLocate }) {
     class: 'map-svg',
     role: 'group',
     tabindex: '0',
-    'aria-label':
-      'County-level map of the United States, shaded by the share of take-home pay that ' +
-      'rent and necessities consume. Zoom with the plus and minus keys, pan with the arrow keys.',
+    'aria-label': label,
   });
 
   const countyLayer = el('g', { class: 'map-counties' });
@@ -136,17 +155,30 @@ export function countyMap(mount, { basemap, onSelect, onHover, onLocate }) {
     countyLayer.appendChild(path);
   }
 
-  // State outlines on top of the fills, as a stroked overlay only. They give the
-  // eye something to navigate by; 3,142 county borders alone read as noise.
+  // The basemap names states by FIPS prefix and counties by postal code, so the
+  // crosswalk is already in the data and does not need a second table.
+  const codeByPrefix = new Map();
+  for (const county of basemap.counties) {
+    const prefix = county.id.slice(0, 2);
+    if (county.st && !codeByPrefix.has(prefix)) codeByPrefix.set(prefix, county.st);
+  }
+
+  // State outlines on top of the fills. Normally a stroked overlay only — they
+  // give the eye something to navigate by, since 3,142 county borders alone read
+  // as noise — but this is also the layer that takes a fill when a caller shades
+  // whole states rather than counties.
   //
   // The nodes are kept because they are also the only geometry that knows where
   // a *state* is: narrowing the picker to Washington zooms the map there, and
   // that needs the state's own bounding box, not the union of its counties'.
   const stateLayer = el('g', { class: 'map-states' });
   const stateNodes = new Map();
+  const stateNodeByCode = new Map();
   for (const state of basemap.states) {
-    const path = el('path', { d: state.d, class: 'map-state' });
+    const code = codeByPrefix.get(state.id) ?? null;
+    const path = el('path', { d: state.d, class: 'map-state', 'data-state': code });
     stateNodes.set(state.id, path);
+    if (code) stateNodeByCode.set(code, path);
     stateLayer.appendChild(path);
   }
 
@@ -172,7 +204,7 @@ export function countyMap(mount, { basemap, onSelect, onHover, onLocate }) {
   const btnOut = iconButton('out', 'Zoom out');
   zoomGroup.append(btnIn, btnOut);
 
-  const btnLocate = iconButton('locate', 'Zoom to the selected county');
+  const btnLocate = iconButton('locate', locateLabel);
   const btnReset = iconButton('reset', 'Reset the view to the whole country');
 
   controls.append(zoomGroup, btnLocate, btnReset);
@@ -269,15 +301,6 @@ export function countyMap(mount, { basemap, onSelect, onHover, onLocate }) {
 
   const localBox = (fips) => boxOf(nodes.get(fips));
 
-  // The basemap names states by FIPS prefix and counties by postal code, so the
-  // crosswalk is already in the data and does not need a second table.
-  const stateNodeByCode = new Map();
-  for (const county of basemap.counties) {
-    if (county.st && !stateNodeByCode.has(county.st)) {
-      stateNodeByCode.set(county.st, stateNodes.get(county.id.slice(0, 2)) ?? null);
-    }
-  }
-
   /** Centre the map on one county, zoomed in far enough to read it. */
   function zoomToCounty(fips) {
     const bbox = localBox(fips);
@@ -347,17 +370,31 @@ export function countyMap(mount, { basemap, onSelect, onHover, onLocate }) {
   /* -------------------------------------------------------- interactions */
 
   const fipsFromEvent = (event) => event.target?.getAttribute?.('data-fips') ?? null;
+  const stateFromEvent = (event) => event.target?.getAttribute?.('data-state') ?? null;
+
+  /**
+   * Which layer is the data layer.
+   *
+   * In county mode the state paths are an unfilled overlay that ignores the
+   * pointer, exactly as before. In state mode they take the fill and the hover,
+   * and the counties beneath them step out of the way. Only the CSS class and
+   * this flag change; the geometry, the zoom and the pan are shared.
+   */
+  let stateMode = false;
 
   // Pointers currently down, in client coordinates. One is a pan, two a pinch.
   const pointers = new Map();
   let pinchFrom = null;
   let panned = false;
 
+  const hoverOut = () => (stateMode ? onHoverState?.(null) : onHover?.(null));
+
   svg.addEventListener('mousemove', (event) => {
     if (pointers.size) return; // mid-drag: a tooltip chasing the cursor is noise
-    onHover?.(fipsFromEvent(event), event);
+    if (stateMode) onHoverState?.(stateFromEvent(event), event);
+    else onHover?.(fipsFromEvent(event), event);
   });
-  svg.addEventListener('mouseleave', () => onHover?.(null));
+  svg.addEventListener('mouseleave', hoverOut);
 
   svg.addEventListener(
     'wheel',
@@ -368,7 +405,7 @@ export function countyMap(mount, { basemap, onSelect, onHover, onLocate }) {
       const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 100 : 1;
       const [px, py] = toView(event.clientX, event.clientY);
       zoomAround(k * Math.exp((-event.deltaY * unit) / 420), px, py);
-      onHover?.(null);
+      hoverOut();
     },
     { passive: false },
   );
@@ -378,7 +415,7 @@ export function countyMap(mount, { basemap, onSelect, onHover, onLocate }) {
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     if (pointers.size === 1) {
       panned = false;
-      onHover?.(null);
+      hoverOut();
     }
     if (pointers.size === 2) {
       const [a, b] = [...pointers.values()];
@@ -432,6 +469,11 @@ export function countyMap(mount, { basemap, onSelect, onHover, onLocate }) {
       panned = false;
       return;
     }
+    if (stateMode) {
+      const code = stateFromEvent(event);
+      if (code) onSelectState?.(code);
+      return;
+    }
     const fips = fipsFromEvent(event);
     if (fips) onSelect?.(fips);
   });
@@ -467,8 +509,12 @@ export function countyMap(mount, { basemap, onSelect, onHover, onLocate }) {
     else if (act === 'out') zoomCentre(1 / ZOOM_STEP);
     else if (act === 'reset') reset();
     else if (act === 'locate') {
-      const fips = onLocate?.();
-      if (fips) zoomToCounty(fips);
+      // A county FIPS is five digits and a postal code is two letters, so the
+      // target says for itself which geometry to frame.
+      const target = onLocate?.();
+      if (!target) return;
+      if (stateNodeByCode.has(target)) zoomToState(target);
+      else zoomToCounty(target);
     }
   });
 
@@ -491,8 +537,50 @@ export function countyMap(mount, { basemap, onSelect, onHover, onLocate }) {
     selection.setAttribute('d', chosen ? chosen.getAttribute('d') : '');
   }
 
+  /**
+   * Fill whole states from the same ramp.
+   *
+   * Only legitimate when the quantity genuinely belongs to the whole state
+   * rather than to the places inside it — this file's opening comment is about
+   * why shading a state by what it *costs* is a lie, and that has not changed.
+   *
+   * The fill goes on the inline style, not on a `fill` attribute: the
+   * stylesheet's `.map-state { fill: none }` is what keeps this an outline layer
+   * everywhere else, and a presentation attribute loses to a stylesheet rule.
+   *
+   * @param {Map<string,number|null>} stepByCode postal code -> ramp class 0..6
+   */
+  function paintStates(stepByCode) {
+    for (const [code, node] of stateNodeByCode) {
+      const step = stepByCode.get(code);
+      node.style.fill =
+        step === undefined || step === null ? NO_DATA_FILL : `var(${RAMP[step]})`;
+    }
+  }
+
+  /** Swap which layer carries the data. Leaving state mode clears the fills. */
+  function setStateMode(on) {
+    stateMode = !!on;
+    mount.classList.toggle('is-state-mode', stateMode);
+    if (!stateMode) for (const node of stateNodeByCode.values()) node.style.fill = '';
+  }
+
+  /**
+   * Outline one whole state, reusing the single selection path.
+   *
+   * Call it after `paint`, which resets that path to whichever county was passed
+   * to it, or to nothing.
+   */
+  function outlineState(code) {
+    const node = code ? stateNodeByCode.get(code) : null;
+    selection.setAttribute('d', node ? node.getAttribute('d') : '');
+  }
+
   apply();
-  return { paint, svg, zoomToCounty, zoomToState, revealCounty, reset };
+  return {
+    paint, paintStates, setStateMode, outlineState,
+    svg, zoomToCounty, zoomToState, revealCounty, reset,
+  };
 }
 
 /**
@@ -503,10 +591,18 @@ export function countyMap(mount, { basemap, onSelect, onHover, onLocate }) {
  * Zillow basis more than half of US counties carry it, and a reader must be able
  * to tell "cheap" from "unmeasured" at a glance.
  *
- * @param {Array} classes NEEDS_SHARE_CLASSES from src/bands.js
- * @param {string} noDataNote which source is silent here — it differs by basis
+ * @param {Array} classes NEEDS_SHARE_CLASSES from src/bands.js, or any list of
+ *   `{ label, note? }` in ramp order, lightest first
+ * @param {object} opts
+ * @param {string} opts.caption what the shading encodes
+ * @param {string} opts.noDataNote which source is silent here — it differs by basis
+ * @param {string} opts.noDataLabel the no-data entry's own text
  */
-export function rampLegendFor(mount, classes, noDataNote = 'No rent figure is published for this county.') {
+export function rampLegendFor(mount, classes, {
+  caption: captionText = 'Share of take-home pay that rent and necessities consume',
+  noDataNote = 'No rent figure is published for this county.',
+  noDataLabel = 'no data',
+} = {}) {
   mount.replaceChildren();
 
   const wrap = document.createElement('div');
@@ -514,7 +610,7 @@ export function rampLegendFor(mount, classes, noDataNote = 'No rent figure is pu
 
   const caption = document.createElement('div');
   caption.className = 'map-legend-caption';
-  caption.textContent = 'Share of take-home pay that rent and necessities consume';
+  caption.textContent = captionText;
   wrap.appendChild(caption);
 
   const scale = document.createElement('div');
@@ -540,7 +636,7 @@ export function rampLegendFor(mount, classes, noDataNote = 'No rent figure is pu
   const swatch = document.createElement('i');
   swatch.style.background = NO_DATA_FILL;
   const text = document.createElement('span');
-  text.textContent = 'no data';
+  text.textContent = noDataLabel;
   nodata.append(swatch, text);
   nodata.title = noDataNote;
   scale.appendChild(nodata);

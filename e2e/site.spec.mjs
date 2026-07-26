@@ -1293,6 +1293,86 @@ test.describe('affordability index', () => {
     }
   });
 
+  test('the state page map opens on the selected state, at county level', async ({ page }) => {
+    const errors = watchForErrors(page);
+    await page.goto('/states/');
+    await expect(page.locator('#state-map .map-county').first()).toBeVisible({ timeout: 30_000 });
+
+    await expect(page.locator('#state-map .map-county')).toHaveCount(COUNTY_COUNT);
+    await expect(page.locator('#map-modes button[data-mode="county"]'))
+      .toHaveAttribute('aria-pressed', 'true');
+
+    // County level is the default, and it must be a county fill rather than a
+    // state one: the whole argument of this page is that a state is not a place.
+    const fills = await page.locator('#state-map .map-county').evaluateAll((nodes) =>
+      new Set(nodes.map((n) => n.getAttribute('fill'))).size,
+    );
+    expect(fills, 'counties should carry several ramp steps').toBeGreaterThan(2);
+    await expect(page.locator('#state-map')).not.toHaveClass(/is-state-mode/);
+
+    // The frame opens on the selected state rather than on the whole country.
+    const zoom = Number((await page.locator('#state-map .map-zoom-level').textContent()).replace('×', ''));
+    expect(zoom, 'the map should open framed on California').toBeGreaterThan(1.5);
+    await expect(page.locator('#state-map .map-selected')).toHaveAttribute('d', /^M/);
+
+    // Clicking a county is a request for the state it sits in: Harris County
+    // moves the page to Texas. Reset first, because a map framed on California
+    // has Texas outside the frame, which is the whole point of framing it.
+    await page.locator('#state-map .map-btn[data-act="reset"]').click();
+    await expect(page.locator('#state-map .map-zoom-level')).toHaveText('1.0×');
+    await page.locator('#state-map .map-county[data-fips="48201"]').click({ force: true });
+    await expect(page.locator('#state-select')).toHaveValue('TX');
+    await expect(page.locator('#inside-state')).toHaveText('Texas');
+
+    expect(errors).toEqual([]);
+  });
+
+  test('the state view shades spread, not cost, and drives the page', async ({ page }) => {
+    const errors = watchForErrors(page);
+    await page.goto('/states/');
+    await expect(page.locator('#state-map .map-county').first()).toBeVisible({ timeout: 30_000 });
+
+    await page.locator('#map-modes button[data-mode="state"]').click();
+    await expect(page.locator('#map-modes button[data-mode="state"]'))
+      .toHaveAttribute('aria-pressed', 'true');
+
+    // Every state carries a fill, spanning most of the ramp, and the country is
+    // shown whole — the state view exists to compare states with each other.
+    const painted = await page.locator('#state-map .map-state').evaluateAll((nodes) =>
+      nodes.filter((n) => n.style.fill).map((n) => n.style.fill),
+    );
+    expect(painted).toHaveLength(51);
+    expect(new Set(painted).size, 'spread should span the ramp').toBeGreaterThan(4);
+    await expect(page.locator('#state-map .map-zoom-level')).toHaveText('1.0×');
+
+    // DC is one county, so it has no two ends to compare and must not be given
+    // a ramp step that implies it does.
+    const dc = await page.locator('#state-map .map-state[data-state="DC"]').evaluate((n) => n.style.fill);
+    expect(dc).toContain('nodata');
+
+    // The legend has to say what the fill means, or a reader takes a state
+    // choropleth to mean cost, which is the one thing it is not.
+    await expect(page.locator('#state-map-legend .map-legend-caption')).toHaveText(/dearest county/i);
+
+    // The table alternative agrees with the map, and the map is a picker.
+    const rows = await page.locator('#state-map-table tbody tr').count();
+    expect(rows).toBeGreaterThan(40);
+
+    await page.locator('#state-map .map-state[data-state="NY"]').click({ force: true });
+    await expect(page.locator('#state-select')).toHaveValue('NY');
+    await expect(page.locator('#inside-state')).toHaveText('New York');
+
+    // Back to counties, and the state fills must go with it, or the county
+    // shading stays hidden underneath them.
+    await page.locator('#map-modes button[data-mode="county"]').click();
+    const cleared = await page.locator('#state-map .map-state').evaluateAll((nodes) =>
+      nodes.every((n) => n.style.fill === ''),
+    );
+    expect(cleared, 'leaving state view should clear the state fills').toBe(true);
+
+    expect(errors).toEqual([]);
+  });
+
   test('every internal link on every page resolves', async ({ page }) => {
     // The clean-URL move rewrote every href by hand. A typo in one of them is
     // invisible until someone clicks it, and looks exactly like a working site.

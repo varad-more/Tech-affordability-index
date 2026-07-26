@@ -351,3 +351,64 @@ name, clean URLs, bug hunt, field check, commit consolidation, repo metadata.
 - Repo is still private. Making it public is the user's call.
 - ACS B25058, B25077, Zillow ZHVI and ZORI-by-ZIP remain unapproved and
   unstarted.
+
+## Review: a map on the By state page (2026-07-26)
+
+Asked for: "By state should also have a state heat map. And more focused on
+county or cities."
+
+### What shipped
+
+A map in a new **Step two** on `/states/`, with two views behind one toggle.
+The existing steps renumbered (tax is now three, "Inside <state>" is four).
+
+- **Every county** (default). County fills on the needs-share ramp, exactly the
+  encoding the explore page uses, and framed on the selected state rather than
+  on the whole country. Clicking a county moves the entire page to its state.
+  This is the "more focused on county" half.
+- **Whole states**. A genuine state choropleth, shaded by the **spread** between
+  a state's dearest and cheapest county. Opens at 1x, because comparing states
+  is the point. Clicking a state selects it.
+
+### Why the state view shades spread and not cost
+
+The site's standing rule is that a choropleth is only honest when one value
+stands for the whole shaded area, which is why nothing here has ever shaded a
+state. Cost still fails that test. Spread passes it: "the two ends of this state
+are 1.7x apart" is a statement about the state, not a figure imputed to every
+square mile in it. It is also this page's own argument drawn as a picture, since
+the darker a state, the less its name told you.
+
+Class breaks are round and fixed: 15, 25, 35, 45, 60, 80 percent dearer. Fixed
+across both rent bases on purpose, so switching the basis shows a change in the
+data rather than a change in the scale under it. On ACS that fills all seven
+steps: 3 / 3 / 13 / 8 / 12 / 8 / 2.
+
+### Bugs found and fixed in this pass
+
+- **A one-county state was painted "most uniform".** `rollUpState` gives a
+  single county a spread of exactly 1.00, which lands in the lightest class and
+  claims the state was measured and found uniform. DC is permanently in that
+  position. Now checked on `roll.n > 1` and drawn as no-data. Caught by a test
+  written before the code was right, not after.
+- **`.map-hint` was 11.5px** between 561 and 620px wide, missed by the earlier
+  mobile pass because it inherits from `.map-status` rather than setting its own
+  size. Pre-existing on the explore page.
+
+### Verified
+
+- 144 unit + 55 browser tests pass, up from 53. The two new ones assert the
+  county view is the default and is a county fill, that the frame opens on the
+  selected state, that a county click moves the page, that all 51 states take a
+  fill spanning the ramp, that DC is no-data, that the legend names what the
+  fill means, and that leaving state view clears the state fills.
+- Both views checked on both rent bases, in light and dark, at 1280px and 390px:
+  no console errors, no horizontal overflow, no tap target under 24px.
+- Switching the rent basis no longer re-frames the map, so a reader comparing
+  two sources keeps their place.
+
+### Copy corrected
+
+Three places asserted "no state fill anywhere", which is no longer true: the
+states page footnote, the method page's "Why counties, and why not states", and
+the README. Each now says what the one state fill encodes and why it qualifies.
