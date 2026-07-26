@@ -61,3 +61,80 @@ standards (50/70/100%) plus three that subdivide the crowded low end.
 - **Connecticut cost data.** It replaced counties with planning regions in 2022, so
   Zillow's geography and MIT's no longer join. Left unshaded rather than mapped
   approximately.
+
+---
+
+# Visual design pass — "beautify, make it aesthetic and appealing"
+
+Investigated by rendering the page and measuring it, not by reading the CSS.
+
+## Defects found by looking
+
+- [x] **Disabled map buttons are see-through.** `.map-btn:disabled { opacity: .45 }`
+      fades the button's *background* too, so at 1.0× the map's blue counties show
+      through the zoom-out control. The CSS comment beside that rule says a faded
+      button "reads as a control that failed to render" — which is exactly what it
+      does. Fade the icon, keep the surface opaque.
+- [x] **The heatmap wastes 113px of vertical space** and draws its type at 0.82×.
+      Measured: box 970×636, content drawn 970×523. `svg { max-width: 100% }` shrinks
+      the width while `height="636"` stays put, so `preserveAspectRatio` centres the
+      content and leaves dead bands above and below. It is the only chart wider than
+      its container, so it is the only one affected.
+- [x] **`svg { max-width: 100% }` has no `height: auto`.** That pairing is the actual
+      bug class behind the above; fix it globally so no future wide chart repeats it.
+
+## Design work
+
+- [x] Type scale and numerals — tabular figures on every displayed figure
+- [x] Hero fills its width instead of stopping mid-line at desktop
+- [x] The three "Step" panels read as a numbered sequence
+- [x] Stat tiles: stronger hierarchy, semantic colour on left-over / short-by
+- [x] Verdict: the band colour should actually carry the answer
+- [x] Inputs: currency adornment, better hover/focus
+- [x] Nav, footer, method + timing pages consistent with the above
+
+## Constraints that do not move
+
+Zero dependencies, no CDN, no build step. Dark mode stepped from the ramps, never
+flipped. Every colour still passes `scripts/validate_palette.js`. 131 unit tests and
+29 browser tests stay green.
+
+## Review
+
+**The two defects were found by rendering the page and measuring it, not by
+reading the CSS.** Both had been shipped and neither was visible in the source:
+
+- The heatmap's dead space measured 113px — box 970×636 around 523px of drawing.
+  The cause was `max-width: 100%` with no `height: auto`, and the same pairing
+  was capping the chart at 82% scale, so 10.5px labels were rendering at 8.6px.
+- The disabled zoom-out button was letting the map show through itself, because
+  `opacity` fades an element's background along with its content.
+
+Fixing the first properly meant confronting a thing the fixed 880px width had
+been hiding: **every chart was either padding a panel or being scaled down, and
+never the size it was drawn at.** Sizing them to the container fixed both ends.
+The floor is now 300px rather than 880 — deliberately below a phone column,
+because these forms do work at ~330px and drawing them there keeps the labels at
+their design size, where the old scaling put axis text at 6.5px.
+
+The heatmap is the exception and now says so in code: seven columns of "13.2%"
+need ~700px however they are arranged, so it opts out of `max-width` and scrolls.
+`.chart-scroll` finally does something — it had been dead code, since nothing
+could overflow a container everything was capped to.
+
+**What the validator changed.** The dark status pair was picked by eye first;
+`validate_palette.js` put the green at L 0.713, outside the dark band's 0.67
+ceiling, and it moved to `#33ad38`. It also fails red-against-green at ΔE 4.1
+(light) and 2.3 (dark) under deuteranopia — no red/green pair passes that. It
+stays, because the two never appear together: one tile is in one state at a time
+and its label says which. That reasoning is written next to the rule rather than
+here, where nobody editing the rule would find it.
+
+The ramp's pale end fails light-end contrast at 1.29:1. That is pre-existing and
+already covered — the relief is every cell carrying a printed value plus a table
+view, and there is a test named for it.
+
+**Verified:** 131 unit + 31 browser tests. The two new browser tests were each
+run against the reverted code first — they catch 117px of letterboxing, 82px of
+unused column, and the transparent button — because a regression test that has
+never failed is not evidence of anything.

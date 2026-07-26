@@ -29,7 +29,7 @@
 
   <header class="hero">
     <p class="eyebrow">Every US county · <span id="tax-year-badge"></span> tax law</p>
-    <h1>What salary does this place<br>actually need?</h1>
+    <h1>What salary does this place actually need?</h1>
     <p class="tagline">
       Cost-of-living calculators go stale and quietly compare gross salaries. This one
       works out what a county costs to live in — rent <em>plus</em> everything else — and
@@ -46,7 +46,7 @@
   <main id="app" hidden>
 
   <section class="panel">
-    <p class="eyebrow">Step one</p>
+    <p class="eyebrow step">Step one</p>
     <h2>Your offer</h2>
     <p class="sub">
       Start from a real entry-level package, or pick <strong>Other</strong> and type your
@@ -61,25 +61,37 @@
     </div>
 
     <div class="fields">
-      <div class="field">
+      <div class="field money">
         <label for="base">Base salary</label>
-        <input id="base" type="number" min="0" step="1000" inputmode="numeric">
+        <span class="input-wrap">
+          <span class="adorn" aria-hidden="true">$</span>
+          <input id="base" type="number" min="0" step="1000" inputmode="numeric">
+        </span>
         <div class="hint">Drives the headline number</div>
       </div>
-      <div class="field">
+      <div class="field money">
         <label for="grant">Equity grant (4-year)</label>
-        <input id="grant" type="number" min="0" step="5000" inputmode="numeric">
+        <span class="input-wrap">
+          <span class="adorn" aria-hidden="true">$</span>
+          <input id="grant" type="number" min="0" step="5000" inputmode="numeric">
+        </span>
         <div class="hint">Total value at grant</div>
       </div>
-      <div class="field">
+      <div class="field money">
         <label for="bonus">Year-1 cash bonus</label>
-        <input id="bonus" type="number" min="0" step="1000" inputmode="numeric">
+        <span class="input-wrap">
+          <span class="adorn" aria-hidden="true">$</span>
+          <input id="bonus" type="number" min="0" step="1000" inputmode="numeric">
+        </span>
         <div class="hint">Target bonus or sign-on</div>
       </div>
-      <div class="field">
+      <div class="field percent">
         <label for="haircut">Equity haircut</label>
-        <input id="haircut" type="number" min="0" max="100" step="5" inputmode="numeric">
-        <div class="hint">% of grant you actually count. 0 for illiquid private shares.</div>
+        <span class="input-wrap">
+          <span class="adorn" aria-hidden="true">%</span>
+          <input id="haircut" type="number" min="0" max="100" step="5" inputmode="numeric">
+        </span>
+        <div class="hint">How much of the grant to count. 0 for illiquid private shares.</div>
       </div>
     </div>
 
@@ -87,7 +99,7 @@
   </section>
 
   <section class="panel">
-    <p class="eyebrow">Step two</p>
+    <p class="eyebrow step">Step two</p>
     <h2>Where this salary lands</h2>
     <p class="sub">
       <strong>Survival</strong> is the salary at which take-home exactly covers
@@ -149,7 +161,7 @@
   </section>
 
   <section class="panel">
-    <p class="eyebrow">Step three</p>
+    <p class="eyebrow step">Step three</p>
     <h2>The whole country at once</h2>
     <p class="sub" id="map-intro"></p>
 

@@ -44,10 +44,25 @@ async function load() {
   renderPicker();
   bindInputs();
   initTheme();
-  renderAll();
 
+  // Reveal first: both charts here size themselves to their container, and a
+  // hidden container measures zero.
   $('#loading').hidden = true;
   $('#app').hidden = false;
+
+  renderAll();
+
+  let last = window.innerWidth;
+  let timer;
+  window.addEventListener('resize', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      if (window.innerWidth === last) return;
+      last = window.innerWidth;
+      renderSeasonal();
+      renderHistory();
+    }, 140);
+  });
 }
 
 const selected = () => state.counties.get(state.selected);
@@ -97,11 +112,12 @@ function renderVerdict() {
 
   if (!county.season) {
     verdict.className = 'verdict';
+    verdict.style.setProperty('--band', 'var(--map-nodata)');
     verdict.innerHTML =
-      `<span class="verdict-swatch" style="background:var(--map-nodata)"></span>` +
-      `<div>Not enough history for ${county.name} to separate a seasonal pattern from ` +
-      `noise. The trend below is still real; the calendar pattern is not shown rather ` +
-      `than guessed.</div>`;
+      `<span class="verdict-chip">No pattern</span>` +
+      `<div class="verdict-text">Not enough history for ${county.name} to separate a seasonal ` +
+      `pattern from noise. The trend below is still real; the calendar pattern is not shown ` +
+      `rather than guessed.</div>`;
     $('#timing-stats').replaceChildren();
     return;
   }
@@ -111,9 +127,10 @@ function renderVerdict() {
   const strong = county.amplitude >= MEANINGFUL_AMPLITUDE;
 
   verdict.className = 'verdict';
+  verdict.style.setProperty('--band', `var(${strong ? '--div-cool' : '--map-nodata'})`);
   verdict.innerHTML =
-    `<span class="verdict-swatch" style="background:var(${strong ? '--div-cool' : '--map-nodata'})"></span>` +
-    `<div>${
+    `<span class="verdict-chip">${strong ? 'Worth timing' : 'Barely seasonal'}</span>` +
+    `<div class="verdict-text">${
       strong
         ? `In ${county.name}, <strong>${MONTH_NAMES[county.cheapest]}</strong> is typically the ` +
           `cheapest month to sign and <strong>${MONTH_NAMES[county.dearest]}</strong> the dearest — ` +

@@ -160,10 +160,37 @@ async function load() {
     // The heatmap picks its label ink from the resolved surface, so it must redraw.
     renderHeatmap();
   });
-  renderAll();
 
+  // Reveal before the first render, not after: the heatmap sizes its cells to the
+  // width actually available, and a hidden container measures zero.
   $('#loading').hidden = true;
   $('#app').hidden = false;
+
+  renderAll();
+  bindResize();
+}
+
+/**
+ * Every chart now sizes itself to the column it sits in, which means a resize can
+ * leave all of them wrong. Only the charts are redrawn — the map keeps its own
+ * geometry in a viewBox and needs nothing — and only once the drag has settled,
+ * because re-rendering twenty-one bars and 147 heatmap cells on every resize
+ * event is work nobody sees.
+ */
+function bindResize() {
+  let last = window.innerWidth;
+  let timer;
+  window.addEventListener('resize', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      if (window.innerWidth === last) return;
+      last = window.innerWidth;
+      renderCountyPanel();
+      renderBars();
+      renderHeatmap();
+      renderMultiples();
+    }, 140);
+  });
 }
 
 /* --------------------------------------------------------------- profile */
@@ -532,8 +559,8 @@ function renderCountyPanel() {
     $('#verdict').className = 'verdict';
     $('#verdict').style.setProperty('--band', 'var(--map-nodata)');
     $('#verdict').innerHTML =
-      `<span class="verdict-swatch" style="background:var(--map-nodata)"></span>` +
-      `<div>No ${basis().short} rent figure is published for ${county.name}.` +
+      `<span class="verdict-chip">No data</span>` +
+      `<div class="verdict-text">No ${basis().short} rent figure is published for ${county.name}.` +
       (hasOther ? ` Switch the rent basis to ${RENT_BASIS[other].short} to see it.` : '') +
       `</div>`;
     $('#county-stats').replaceChildren();
@@ -556,12 +583,13 @@ function renderCountyPanel() {
 
   const verdict = $('#verdict');
   verdict.className = `verdict band-${band.id}`;
-  // The band colour rides an inset rule down the edge as well as the swatch, so
-  // the verdict reads as an answer rather than as one more paragraph.
+  // The band colour rides an inset rule down the edge and a dot on the chip, so
+  // the verdict reads as an answer rather than as one more paragraph. The chip
+  // carries the band's name in words, which is what survives colourblindness.
   verdict.style.setProperty('--band', `var(${BAND_STEP[band.id]})`);
   verdict.innerHTML =
-    `<span class="verdict-swatch" style="background:var(${BAND_STEP[band.id]})"></span>` +
-    `<div><strong>${band.label}</strong> in ${county.name} on ${money(state.offer.baseSalary)} base. ` +
+    `<span class="verdict-chip">${band.label}</span>` +
+    `<div class="verdict-text">in ${county.name} on ${money(state.offer.baseSalary)} base. ` +
     `${band.description}</div>`;
 
   const unitLabel = UNIT_SIZES.find((u) => u.key === unit)?.label;
@@ -582,13 +610,16 @@ function renderCountyPanel() {
       label: surplus >= 0 ? 'Left over' : 'Short by',
       value: `${money(Math.abs(surplus))}/mo`,
       note: surplus >= 0 ? `${pct(needs / net, 0)} of pay goes to necessities` : 'necessities exceed take-home',
+      // Only this tile changes meaning rather than magnitude, so only this one
+      // takes a rail. The label states the case; the colour repeats it.
+      rail: surplus >= 0 ? 'is-good' : 'is-short',
     },
   ];
 
   $('#county-stats').replaceChildren(
     ...tiles.map((t) => {
       const d = document.createElement('div');
-      d.className = 'stat';
+      d.className = t.rail ? `stat ${t.rail}` : 'stat';
       d.innerHTML =
         `<div class="label">${t.label}</div><div class="value">${t.value}</div><div class="note">${t.note}</div>`;
       return d;

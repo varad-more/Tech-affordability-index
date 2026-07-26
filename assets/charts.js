@@ -62,6 +62,30 @@ function attachTooltip(target, html) {
   target.addEventListener('blur', hide);
 }
 
+/**
+ * The drawing width for a chart that should fill the column it sits in.
+ *
+ * These charts were all authored at a fixed 880px. Panels are wider than that, so
+ * every one of them left a ragged strip of empty surface down its right-hand
+ * side; below 880 the SVG scaled down instead, shrinking the type with it.
+ * Measuring the mount fixes both ends — the plot uses the room it has, and the
+ * labels stay at the size they were designed at.
+ *
+ * The floor sits below a phone's column on purpose. These forms all still work at
+ * ~330px — the bar chart keeps a 116px name gutter and still has 158px of plot —
+ * so drawing them at the container's true width leaves the labels at their design
+ * size. Holding a wider floor would only hand them back to `max-width: 100%` to
+ * scale down, which is how 11px axis text ended up rendering at 6.5px.
+ *
+ * A mount with no layout yet (hidden, or not in the document) measures zero, and
+ * falls back to the original width.
+ */
+function frameWidth(mount, { min = 300, max = 1180, fallback = 880 } = {}) {
+  const avail = mount?.clientWidth ?? 0;
+  if (!avail) return fallback;
+  return Math.round(Math.max(min, Math.min(max, avail)));
+}
+
 /* ------------------------------------------------------------ time series */
 
 /**
@@ -81,7 +105,7 @@ function attachTooltip(target, html) {
 export function timeSeries(mount, points, { valueFormat = money } = {}) {
   mount.replaceChildren();
 
-  const W = 880;
+  const W = frameWidth(mount);
   const H = 260;
   const padL = 58;
   const padR = 14;
@@ -189,12 +213,18 @@ export function timeSeries(mount, points, { valueFormat = money } = {}) {
 export function divergingBars(mount, bars, { format = (v) => pct(v, 1), highlight } = {}) {
   mount.replaceChildren();
 
-  const W = 880;
-  const barW = 46;
+  const W = frameWidth(mount);
   const gap = 10;
   const midY = 96;
   const maxBar = 62;
   const H = 200;
+
+  // Twelve fixed-width bars centred in a wider frame would only push the margins
+  // out; widening the bars instead spends the extra room on the data. The cap
+  // stops a wide viewport from turning twelve months into twelve slabs.
+  const sideMargin = 16;
+  const span = W - sideMargin * 2 - (bars.length - 1) * gap;
+  const barW = Math.round(Math.max(24, Math.min(72, span / bars.length)));
 
   const peak = Math.max(...bars.map((b) => Math.abs(b.value)), 0.001);
   const scale = (v) => (Math.abs(v) / peak) * maxBar;
@@ -274,7 +304,7 @@ export function divergingBars(mount, bars, { format = (v) => pct(v, 1), highligh
 export function stackedBar(mount, segments, { total } = {}) {
   mount.replaceChildren();
 
-  const W = 880;
+  const W = frameWidth(mount);
   const H = 116;
   const barY = 8;
   const barH = 42;
@@ -362,7 +392,7 @@ export function stackedBar(mount, segments, { total } = {}) {
 export function salaryLadder(mount, { bands, salary, colors, bandLabel }) {
   mount.replaceChildren();
 
-  const W = 880;
+  const W = frameWidth(mount);
   const H = 104;
   const padL = 8;
   const padR = 8;
@@ -467,7 +497,7 @@ function barPath(x, y, w, h, r) {
 export function rankedBarChart(mount, rows, { threshold, thresholdLabel, gutter } = {}) {
   mount.replaceChildren();
 
-  const W = 880;
+  const W = frameWidth(mount);
   // Metro names fit in 116px; "Barnstable County, MA" does not, and a clipped
   // label is worse than a slightly shorter bar.
   const gutterL = gutter ?? 116;
@@ -575,10 +605,25 @@ export function heatmap(mount, { rowLabels, colLabels, cells }) {
   mount.replaceChildren();
 
   const gutterL = 116;
-  const cellW = 150;
   const cellH = 26;
   const gap = 2;
   const top = 40;
+
+  // Cell width follows the space actually available. Left to `max-width: 100%`
+  // the whole SVG scaled down — 10.5px labels landed at 8.6px — and, because the
+  // height attribute did not shrink with it, 113px of dead band was left above
+  // and below.
+  //
+  // Unlike the other charts this one cannot be made to fit a phone: seven columns
+  // of "13.2%" need roughly 700px however they are arranged. So it is the one
+  // chart that opts out of `max-width` (via `.chart-wide`) and overflows into its
+  // scroller, where the reader pans a legible grid instead of squinting at a
+  // scaled one. The floor is the width below which a cell stops holding a label.
+  const MIN_CELL = 74;
+  const MAX_CELL = 150;
+  const avail = mount.clientWidth || 0;
+  const fitted = avail > 0 ? (avail - gutterL) / colLabels.length - gap : MAX_CELL;
+  const cellW = Math.round(Math.max(MIN_CELL, Math.min(MAX_CELL, fitted)));
 
   const W = gutterL + colLabels.length * (cellW + gap);
   const H = top + rowLabels.length * (cellH + gap) + 8;
@@ -591,6 +636,7 @@ export function heatmap(mount, { rowLabels, colLabels, cells }) {
     viewBox: `0 0 ${W} ${H}`,
     width: W,
     height: H,
+    class: 'chart-wide',
     role: 'img',
     'aria-label': 'Share of take-home pay spent on rent, by metro and offer',
   });

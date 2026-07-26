@@ -498,6 +498,56 @@ test.describe('affordability index', () => {
     }
   });
 
+  test('a chart box is the size of the chart, and fills its column', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await ready(page);
+
+    // An SVG carrying both a width attribute and `max-width: 100%` will shrink
+    // its width and keep its height, so preserveAspectRatio centres the drawing
+    // and pads it with dead space. The heatmap did exactly that: a 636px box
+    // around 523px of picture. The box must be the size of what is drawn in it.
+    for (const sel of ['#heatmap svg', '#bars svg', '#ladder svg', '#breakdown svg']) {
+      const gap = await page.locator(sel).evaluate((svg) => {
+        const box = svg.getBoundingClientRect();
+        const [, , vw, vh] = svg.getAttribute('viewBox').split(/[\s,]+/).map(Number);
+        return box.height - vh * (box.width / vw);
+      });
+      expect(Math.abs(gap), `${sel} letterboxes ${gap}px of empty space`).toBeLessThan(2);
+    }
+
+    // And the column-width charts should use the column. Fixed at 880px inside a
+    // ~1000px panel they left a ragged strip of empty surface down every panel.
+    for (const sel of ['#bars', '#ladder', '#breakdown']) {
+      const { chart, column } = await page.locator(sel).evaluate((mount) => ({
+        chart: mount.querySelector('svg').getBoundingClientRect().width,
+        column: mount.clientWidth,
+      }));
+      expect(column - chart, `${sel} leaves ${column - chart}px unused`).toBeLessThan(12);
+    }
+  });
+
+  test('a disabled map control still looks like a control', async ({ page }) => {
+    await ready(page);
+
+    // At 1x there is nothing to zoom out to, so both buttons are disabled. Fading
+    // the whole button — rather than its icon — takes the background down with it
+    // and the map shows straight through the control, which reads as a rendering
+    // failure rather than as an unavailable action.
+    const out = page.locator('#map .map-btn[data-act="out"]');
+    await expect(out).toBeDisabled();
+
+    const alpha = (color) => {
+      const m = color.match(/[\d.]+/g).map(Number);
+      return m.length > 3 ? m[3] : 1;
+    };
+    expect(alpha(await out.evaluate((b) => getComputedStyle(b).backgroundColor))).toBe(1);
+    expect(await out.evaluate((b) => Number(getComputedStyle(b).opacity))).toBe(1);
+    expect(
+      await out.evaluate((b) => Number(getComputedStyle(b.querySelector('svg')).opacity)),
+      'the icon should be the part that fades',
+    ).toBeLessThan(1);
+  });
+
   test('charts carry accessible names and a table alternative', async ({ page }) => {
     await ready(page);
 

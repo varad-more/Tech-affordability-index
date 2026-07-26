@@ -24,6 +24,9 @@
   --seq-6: #184f95;
   --seq-7: #0d366b;
 
+  /* Status pair. Used only as decoration next to a word that already states the
+     case — the freshness dot, the surplus rail — never as the sole carrier of a
+     fact, and never as a series colour. */
   --good:     #0ca30c;
   --critical: #d03b3b;
 
@@ -44,6 +47,15 @@
 
   --font: system-ui, -apple-system, "Segoe UI", sans-serif;
   --radius: 10px;
+  --radius-lg: 14px;
+
+  /* Elevation. Two steps only: panels sit on the page, and things that float
+     over content (tooltip, map controls) sit above panels. Anything more becomes
+     a hierarchy nobody can read. In light mode the shadow is a soft neutral; in
+     dark it is nearly black and paired with a lighter surface, because a dark
+     shadow on a dark ground conveys no depth on its own. */
+  --shadow-1: 0 1px 2px rgba(11, 11, 11, 0.04), 0 4px 12px rgba(11, 11, 11, 0.045);
+  --shadow-2: 0 2px 6px rgba(11, 11, 11, 0.07), 0 12px 32px rgba(11, 11, 11, 0.10);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -78,8 +90,14 @@
     --map-hairline:   rgba(0, 0, 0, 0.45);
     --map-state-line: #6a6963;
 
+    --good:     #33ad38;
+    --critical: #e8615f;
+
     --warn-bg:     #2a2416;
     --warn-border: #6b5a24;
+
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.34), 0 4px 12px rgba(0, 0, 0, 0.30);
+    --shadow-2: 0 2px 6px rgba(0, 0, 0, 0.45), 0 12px 32px rgba(0, 0, 0, 0.45);
   }
 }
 
@@ -113,8 +131,14 @@
   --map-hairline:   rgba(0, 0, 0, 0.45);
   --map-state-line: #6a6963;
 
+  --good:     #33ad38;
+  --critical: #e8615f;
+
   --warn-bg:     #2a2416;
   --warn-border: #6b5a24;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.34), 0 4px 12px rgba(0, 0, 0, 0.30);
+  --shadow-2: 0 2px 6px rgba(0, 0, 0, 0.45), 0 12px 32px rgba(0, 0, 0, 0.45);
 }
 
 * { box-sizing: border-box; }
@@ -212,6 +236,7 @@ body {
   font-size: 0.84rem;
   padding: 6px 10px;
   border-radius: 7px;
+  transition: color 120ms ease, background 120ms ease;
 }
 
 .topnav-links a:hover { color: var(--ink-1); background: var(--surface-1); }
@@ -220,6 +245,7 @@ body {
   color: var(--ink-1);
   background: var(--surface-1);
   box-shadow: inset 0 0 0 1px var(--border);
+  font-weight: 560;
 }
 
 /* The nav is the one row with no scroll container of its own, so on a phone it
@@ -259,6 +285,39 @@ body {
 /* ---- hero ---- */
 
 .hero { padding: 26px 0 4px; }
+
+/* Above 900px the headline stops around half the container and leaves the rest of
+   the row empty. Setting the supporting text beside it rather than beneath fills
+   that column and bottom-aligns the two, so the hero reads as one composed block
+   instead of a wide measure of text that happens to stop early. Below 900px the
+   grid never applies and the source order — eyebrow, headline, tagline, date —
+   is already the right stacking order. */
+@media (min-width: 900px) {
+  .hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1.02fr) minmax(0, 0.98fr);
+    column-gap: 52px;
+    align-items: end;
+    padding-bottom: 8px;
+  }
+
+  .hero .eyebrow { grid-column: 1; grid-row: 1; }
+  .hero h1 { grid-column: 1; grid-row: 2; margin-bottom: 0; }
+  .hero .tagline { grid-column: 2; grid-row: 2; font-size: 0.97rem; }
+
+  /* The pill spans both columns even though it only ever fills part of one. It
+     is a single run of text — counties, source, vintage — and penned into the
+     left column it wrapped to three ragged lines with the date stranded on its
+     own. The span buys it room; `inline-flex` still sizes it to its content. */
+  .hero .freshness {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    margin-top: 24px;
+    /* Grid items stretch by default, which overrides the pill's inline-flex
+       shrink-to-fit and draws it as a full-width bar. */
+    justify-self: start;
+  }
+}
 
 .eyebrow {
   font-size: 0.72rem;
@@ -356,12 +415,29 @@ h1 {
 section.panel {
   background: var(--surface-1);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 24px;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-1);
+  padding: 26px 28px;
   margin-top: 22px;
 }
 
 section.panel .eyebrow { margin-bottom: 6px; }
+
+/* The three numbered panels are a sequence; the charts below them are a gallery.
+   A dot in the accent colour marks the difference without a second type style —
+   and it stays decorative, because "Step one" already says so in words. Tinting
+   the label itself would put 11px text at 4.35:1 on this surface, under the 4.5
+   floor, so the colour goes on the dot instead. */
+.eyebrow.step::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: 0.1em;
+}
 
 h2 {
   font-size: 1.24rem;
@@ -431,12 +507,17 @@ h3 {
   transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
 }
 
-.presets button:hover { color: var(--ink-1); border-color: var(--axis); }
+.presets button:hover {
+  color: var(--ink-1);
+  border-color: var(--axis);
+  background: var(--surface-1);
+}
 
 .presets button[aria-pressed="true"] {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
+  box-shadow: var(--shadow-1);
 }
 
 /* "Other" is not one more company — it is the row's escape hatch. A hairline
@@ -471,20 +552,50 @@ h3 {
 .field input,
 .field select {
   width: 100%;
-  padding: 9px 10px;
+  padding: 10px 11px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--page);
   color: var(--ink-1);
   font: inherit;
   font-variant-numeric: tabular-nums;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
 }
+
+.field input:hover:not(:disabled),
+.field select:hover:not(:disabled) { border-color: var(--axis); }
 
 .field input:focus,
 .field select:focus {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+  border-color: transparent;
 }
+
+/* A unit marker inside the box, so the field says what it wants without spending
+   a line of the hint on it. The input padding clears the mark rather than sitting
+   under it, because a long salary would otherwise run through the symbol.
+
+   The mark is positioned against a wrapper around the input alone, not against
+   the field: centring inside the field would have to account for the label above
+   and the hint below, both of which change height when text wraps. */
+.input-wrap { position: relative; display: block; }
+
+.field.money input { padding-left: 25px; }
+.field.percent input { padding-right: 27px; }
+
+.field .adorn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--ink-muted);
+  font-size: 0.92rem;
+  pointer-events: none;
+  line-height: 1;
+}
+
+.field.money .adorn { left: 11px; }
+.field.percent .adorn { right: 11px; }
 
 /* A disabled control must look disabled. Unit size switches off on the Zillow
    basis, which publishes no bedroom split, and a greyed-out label alone is easy
@@ -514,11 +625,37 @@ h3 {
    a nested card on the same fill as its container is a border with nothing
    behind it. Same reasoning as .verdict and .callout. */
 .stat {
+  position: relative;
   background: var(--page);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 16px;
+  padding: 16px 16px 16px 17px;
+  overflow: hidden;
 }
+
+/* The last tile flips between "Left over" and "Short by", which is the only place
+   on the page where a number changes meaning rather than magnitude. The rail
+   marks that flip, and is decorative on purpose, for two measured reasons.
+
+   Neither --good nor --critical clears 4.5:1 against this fill, so neither may
+   set the value text. And the pair is red against green: the validator puts them
+   at ΔE 4.1 (light) and 2.3 (dark) under deuteranopia, far under the 8 it wants.
+   No red/green pair survives that check — which is fine here only because the
+   two never appear together. One tile is in one state at a time, and the label
+   above it already says which. Read the rail as emphasis on a word, never as the
+   word itself; anything that made colour load-bearing here would be wrong. */
+.stat::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--rail, transparent);
+}
+
+.stat.is-good  { --rail: var(--good); }
+.stat.is-short { --rail: var(--critical); }
 
 .stat .label {
   font-size: 0.74rem;
@@ -531,7 +668,10 @@ h3 {
 .stat .value {
   font-size: 1.72rem;
   line-height: 1.1;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.022em;
+  /* Tiles sit in a row and are read down the column as much as across it, so the
+     digits have to line up. */
+  font-variant-numeric: tabular-nums;
 }
 
 .stat .note {
@@ -542,9 +682,37 @@ h3 {
 
 /* ---- charts ---- */
 
-.chart-scroll { overflow-x: auto; }
+/* Scrolling shadows, appearing only on the edge there is more content past.
+   Two layers do the work: the covers are attached `local`, so they travel with
+   the content and slide off the shadow as you scroll away from an edge, while
+   the shadows are attached `scroll` and stay pinned to the box. When nothing
+   overflows, both covers sit over both shadows and nothing shows — so this needs
+   no script and cannot fall out of sync with the actual scroll position.
 
-svg { display: block; max-width: 100%; }
+   Worth the four gradients because the widest thing on the page, the heatmap,
+   shows three of its seven columns on a phone, and a grid that gives no sign it
+   continues simply reads as a grid with three columns. */
+.chart-scroll {
+  overflow-x: auto;
+  background:
+    linear-gradient(to right, var(--surface-1), transparent) 0 0 / 28px 100% no-repeat local,
+    linear-gradient(to left, var(--surface-1), transparent) 100% 0 / 28px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgba(11, 11, 11, 0.16), transparent) 0 0 / 12px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgba(11, 11, 11, 0.16), transparent) 100% 0 / 12px 100% no-repeat scroll;
+}
+
+/* `height: auto` is not optional next to `max-width: 100%`. With both a width and
+   a height attribute on the SVG, capping the width alone leaves the height at its
+   attribute value, so `preserveAspectRatio` centres the drawing and pads it with
+   dead space — the heatmap was 636px tall around 523px of content. Letting the
+   height follow the aspect ratio keeps the box the size of the picture. */
+svg { display: block; max-width: 100%; height: auto; }
+
+/* The one chart that must not be squeezed. Seven columns of "13.2%" need about
+   700px however they are laid out, so on a phone the honest options are to
+   scale it into illegibility or to let it overflow and be panned. It overflows;
+   `.chart-scroll` is the scroller, and the page itself still never scrolls. */
+svg.chart-wide { max-width: none; }
 
 svg text { font-family: var(--font); }
 
@@ -702,7 +870,7 @@ svg text { font-family: var(--font); }
   flex-direction: column;
   border-radius: 8px;
   overflow: hidden;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
+  box-shadow: var(--shadow-2);
 }
 
 .map-btn-group .map-btn { border-radius: 0; box-shadow: none; }
@@ -719,7 +887,7 @@ svg text { font-family: var(--font); }
   border-radius: 8px;
   color: var(--ink-2);
   cursor: pointer;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
+  box-shadow: var(--shadow-2);
   transition: color 120ms ease, background 120ms ease;
 }
 
@@ -735,10 +903,12 @@ svg text { font-family: var(--font); }
 
 .map-btn:hover:not(:disabled) { color: var(--ink-1); background: var(--page); }
 
-/* Disabled has to stay legible. Faded to the point of invisibility, the zoom-out
-   button at 1x reads as a control that failed to render rather than one with
-   nothing left to do. */
-.map-btn:disabled { opacity: 0.45; cursor: default; }
+/* Fade the glyph, never the button. `opacity` on the element takes its background
+   down with it, so at 1× the map showed straight through the zoom-out control —
+   which is precisely the "failed to render" look this rule exists to avoid. The
+   surface stays opaque and only the icon recedes. */
+.map-btn:disabled { cursor: default; }
+.map-btn:disabled svg { opacity: 0.32; }
 
 .map-status {
   position: absolute;
@@ -836,30 +1006,52 @@ svg text { font-family: var(--font); }
   margin-bottom: 18px;
 }
 
-/* The verdict is the answer to the question in the headline, so it gets the
-   band colour twice — once as the swatch, once as a rule down the edge — and a
-   step more type than the prose around it. */
+/* The verdict is the answer to the question in the headline, so it gets the band
+   colour as a rule down its edge and a step more type than the prose around it.
+   A 14px swatch used to carry the band; a chip carrying the band's *name* says
+   the same thing in words, which survives both colourblindness and a screenshot
+   pasted into a chat. */
 .verdict {
   display: flex;
-  align-items: flex-start;
-  gap: 11px;
-  padding: 15px 17px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 16px 18px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--page);
-  box-shadow: inset 3px 0 0 var(--band, var(--border));
+  box-shadow: inset 4px 0 0 var(--band, var(--border));
   font-size: 0.95rem;
-  line-height: 1.5;
+  line-height: 1.55;
 }
 
-.verdict-swatch {
-  width: 14px;
-  height: 14px;
-  border-radius: 3px;
+.verdict-chip {
   flex: none;
-  margin-top: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 11px 4px;
+  border-radius: 999px;
   border: 1px solid var(--border);
+  background: var(--surface-1);
+  font-size: 0.8rem;
+  font-weight: 640;
+  letter-spacing: -0.005em;
+  color: var(--ink-1);
+  white-space: nowrap;
 }
+
+.verdict-chip::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--band, var(--border));
+  box-shadow: 0 0 0 1px var(--border) inset;
+}
+
+.verdict-text { flex: 1 1 16ch; min-width: 0; }
 
 .ladder-tick { stroke: var(--ink-1); stroke-width: 1; opacity: 0.45; }
 
@@ -904,7 +1096,7 @@ tfoot td { border-bottom: none; padding-top: 10px; }
   border-radius: 8px;
   padding: 9px 11px;
   font-size: 0.8rem;
-  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.16);
+  box-shadow: var(--shadow-2);
   max-width: 260px;
 }
 
@@ -942,12 +1134,17 @@ table {
 
 th, td {
   text-align: right;
-  padding: 7px 9px;
+  padding: 8px 9px;
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
 }
 
 th:first-child, td:first-child { text-align: left; }
+
+/* These tables are read across a row — metro, then five figures — so the row is
+   the unit that needs tracking, not the cell. */
+tbody tr { transition: background 90ms ease; }
+tbody tr:hover { background: var(--page); }
 
 thead th {
   color: var(--ink-muted);
@@ -982,17 +1179,20 @@ footer.notes a { color: var(--accent); }
   margin: 26px 0 8px;
   padding: 14px;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   background: var(--surface-1);
+  box-shadow: var(--shadow-1);
 }
 
 .toc a {
   font-size: 0.8rem;
   color: var(--ink-2);
   text-decoration: none;
-  padding: 5px 10px;
+  padding: 5px 11px;
   border-radius: 999px;
   border: 1px solid var(--border);
+  background: var(--page);
+  transition: color 120ms ease, border-color 120ms ease;
 }
 
 .toc a:hover { color: var(--ink-1); border-color: var(--axis); }
@@ -1132,11 +1332,28 @@ td .swatch {
 
   .hero { padding: 18px 0 2px; }
 
-  .stats { gap: 10px; margin-top: 18px; }
-  .stat { padding: 13px; }
-  .stat .value { font-size: 1.5rem; }
+  /* Two up rather than four down. At one per row the four tiles cost most of a
+     screen of scrolling to say four numbers, and the pair-wise reading the row
+     is for — rent against take-home, needs against what is left — is lost. */
+  .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 18px;
+  }
+  .stat { padding: 13px 13px 13px 14px; }
+  .stat .value { font-size: 1.32rem; }
+  .stat .label { font-size: 0.7rem; }
+  .stat .note { font-size: 0.74rem; }
 
-  .verdict { padding: 13px 14px; font-size: 0.9rem; }
+  /* Beside the chip the sentence is left with about 150px and sets as a ragged
+     column with a pool of empty space under the chip. Stacked, it gets the full
+     width. */
+  .verdict {
+    display: block;
+    padding: 13px 14px;
+    font-size: 0.9rem;
+  }
+  .verdict-chip { margin-bottom: 9px; }
 
   .fields { gap: 12px; }
 
