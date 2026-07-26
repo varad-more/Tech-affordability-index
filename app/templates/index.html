@@ -1,0 +1,253 @@
+{% extends 'base.html' %}
+{% block title %}Affordability Index: what salary a US county actually needs{% endblock %}
+{% block description %}What salary you need to survive and to live comfortably in any US county, computed against take-home pay from current rent data and current-year tax law.{% endblock %}
+
+{% block content %}
+  <header class="hero">
+    <p class="eyebrow">Every US county · <span id="tax-year-badge"></span> tax law</p>
+    <h1>What salary does this place actually need?</h1>
+    <p class="tagline">
+      Cost-of-living calculators go stale and quietly compare gross salaries. This one
+      works out what a county costs to live in, rent <em>plus</em> everything else, and
+      the salary that clears it. All of it against <strong>take-home pay</strong>, after
+      federal, state, city and payroll tax.
+    </p>
+    <div class="freshness" id="freshness"></div>
+  </header>
+
+  <div id="loading" class="loading">
+    <span class="spinner" aria-hidden="true"></span> Loading county data…
+  </div>
+
+  <main id="app" hidden>
+
+  <section class="panel">
+    <p class="eyebrow step">Step one</p>
+    <h2>Your offer</h2>
+    <p class="sub">
+      Start from a real entry-level package, or pick <strong>Other</strong> and type your
+      own. Compensation is the input you supply; the cost of living is the part kept
+      current for you.
+    </p>
+
+    <div class="control-group">
+      <span class="control-label" id="presets-label">Starting point</span>
+      <div class="presets" id="presets" role="group" aria-labelledby="presets-label"></div>
+      <p class="control-note" id="preset-note"></p>
+    </div>
+
+    <div class="fields">
+      <div class="field money">
+        <label for="base">Base salary</label>
+        <span class="input-wrap">
+          <span class="adorn" aria-hidden="true">$</span>
+          <input id="base" type="number" min="0" step="1000" inputmode="numeric">
+        </span>
+        <div class="hint">Drives the headline number</div>
+      </div>
+      <div class="field money">
+        <label for="grant">Equity grant (4-year)</label>
+        <span class="input-wrap">
+          <span class="adorn" aria-hidden="true">$</span>
+          <input id="grant" type="number" min="0" step="5000" inputmode="numeric">
+        </span>
+        <div class="hint">Total value at grant</div>
+      </div>
+      <div class="field money">
+        <label for="bonus">Year-1 cash bonus</label>
+        <span class="input-wrap">
+          <span class="adorn" aria-hidden="true">$</span>
+          <input id="bonus" type="number" min="0" step="1000" inputmode="numeric">
+        </span>
+        <div class="hint">Target bonus or sign-on</div>
+      </div>
+      <div class="field percent">
+        <label for="haircut">Equity haircut</label>
+        <span class="input-wrap">
+          <span class="adorn" aria-hidden="true">%</span>
+          <input id="haircut" type="number" min="0" max="100" step="5" inputmode="numeric">
+        </span>
+        <div class="hint">How much of the grant to count. 0 for illiquid private shares.</div>
+      </div>
+    </div>
+
+    <p class="callout" id="location-caveat"></p>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow step">Step two</p>
+    <h2>Where this salary lands</h2>
+    <p class="sub">
+      <strong>Survival</strong> is the salary at which take-home exactly covers
+      necessities. That is MIT's living wage budget, which contains no savings and no
+      discretionary spending. <strong>Comfortable</strong> is the salary at which those
+      same necessities fit inside half your take-home, leaving the 30% and the 20% of the
+      50/30/20 rule for everything else.
+    </p>
+
+    <div class="picker-row">
+      <div class="field">
+        <label for="state-picker">State</label>
+        <div class="select-wrap">
+          <select id="state-picker"></select>
+        </div>
+        <div class="hint" id="state-hint"></div>
+      </div>
+
+      <div class="field field-county">
+        <label for="county-picker">County</label>
+        <div class="combo">
+          <input id="county-picker" type="text" role="combobox"
+                 aria-expanded="false" aria-controls="county-listbox"
+                 aria-autocomplete="list" aria-haspopup="listbox"
+                 autocomplete="off" autocapitalize="off" autocorrect="off"
+                 spellcheck="false" placeholder="Search counties…">
+          <button type="button" id="county-toggle" class="combo-toggle"
+                  tabindex="-1" aria-label="Show the county list"></button>
+          <ul id="county-listbox" class="combo-list" role="listbox"
+              aria-label="Counties" hidden></ul>
+        </div>
+        <div class="hint" id="county-hint"></div>
+        <p id="county-status" class="sr-only" role="status" aria-live="polite"></p>
+      </div>
+
+      <div class="field">
+        <label for="unit-size">Unit size</label>
+        <div class="select-wrap">
+          <select id="unit-size"></select>
+        </div>
+        <div class="hint" id="unit-size-hint"></div>
+      </div>
+
+      <div class="field">
+        <label for="rent-basis">Rent measured by</label>
+        <div class="select-wrap">
+          <select id="rent-basis">
+            <option value="acs">Census ACS</option>
+            <option value="zori">Zillow ZORI</option>
+          </select>
+        </div>
+        <div class="hint" id="rent-basis-hint"></div>
+      </div>
+    </div>
+
+    <div class="verdict" id="verdict"></div>
+
+    <div class="stats" id="county-stats"></div>
+
+    <div class="chart-scroll"><div id="ladder"></div></div>
+
+    <p class="callout warn" id="local-tax-warning" hidden></p>
+
+    <div class="subsection">
+      <h3>Where the money actually goes</h3>
+      <p class="sub">
+        The monthly cost of one adult living here, broken out. Rent is measured.
+        Everything else is MIT's county-level budget for a single adult, which is a
+        <em>subsistence</em> standard: no savings, no holidays, no meals out.
+      </p>
+      <div class="chart-scroll"><div id="breakdown"></div></div>
+      <div class="chart-scroll"><table id="breakdown-table"></table></div>
+    </div>
+
+    <details class="table-view">
+      <summary>Tax breakdown for this salary</summary>
+      <div class="chart-scroll"><table id="tax-table"></table></div>
+    </details>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow step">Step three</p>
+    <h2>The whole country at once</h2>
+    <p class="sub" id="map-intro"></p>
+
+    <div id="map"></div>
+    <div id="map-legend"></div>
+    <p class="sub" id="map-caption" style="margin-top:12px"></p>
+  </section>
+
+  <section class="panel">
+    <h2>Rent as a share of monthly take-home</h2>
+    <p class="sub">
+      The 21 largest tech hubs, at metro level, on Zillow's current asking rents. Base
+      salary only, so no equity and no bonus. This is the number that decides whether you
+      can make rent every month, and the one a total-comp figure flatters most. The dashed
+      line is HUD's 30% cost-burdened threshold.
+    </p>
+    <div class="chart-scroll"><div id="bars"></div></div>
+    <p class="sub" id="bars-caption" style="margin-top:12px"></p>
+
+    <details class="table-view">
+      <summary>View as table</summary>
+      <div class="chart-scroll"><table id="table"></table></div>
+    </details>
+  </section>
+
+  <section class="panel">
+    <h2>Every hub against every offer</h2>
+    <p class="sub">
+      Year-1 share of take-home, counting bonus and vested equity. Rows follow the ranking
+      above. This is a snapshot of year one only, and the ordering does not hold: the
+      vesting shapes below pull the packages apart over four years.
+    </p>
+    <div class="chart-scroll"><div id="heatmap"></div></div>
+    <div id="heatmap-legend"></div>
+  </section>
+
+  <section class="panel">
+    <h2>How it changes as equity vests</h2>
+    <p class="sub">
+      The same offer across four years in one metro. Vesting shape matters as much as the
+      headline total. A front-loaded grant decays as it vests, so whichever offer looks
+      best in year one need not still be ahead in year four.
+    </p>
+
+    <div class="field" style="max-width:230px;margin-bottom:18px">
+      <label for="city-picker">Metro</label>
+      <select id="city-picker"></select>
+    </div>
+
+    <div class="multiples" id="multiples"></div>
+    <p class="sub" id="multiples-caption" style="margin-top:14px"></p>
+  </section>
+
+  </main>
+
+  <footer class="notes">
+    <h2>The short version of the caveats</h2>
+    <ul>
+      <li>
+        <strong>Two rent measures, never mixed.</strong> Census ACS covers every county
+        but is a five-year average and includes utilities. Zillow ZORI is current and
+        monthly but excludes utilities and covers about 1,360 counties. Switch between
+        them above; the site never converts one into the other, because a national
+        multiplier was tested and proved far too unreliable to publish.
+      </li>
+      <li>
+        <strong>Everything except rent</strong> is MIT's county-level budget for one adult
+        with no children. It is a subsistence standard, not a comfortable one.
+      </li>
+      <li>
+        <strong>Local income tax is modelled for two cities only</strong>, New York City
+        and Philadelphia. Counties elsewhere that levy one carry an on-screen warning.
+      </li>
+      <li>
+        <strong>Compensation is not location-adjusted</strong>, and the presets are
+        national medians. Edit the salary field to your actual offer.
+      </li>
+      <li>
+        <strong>Single filer, standard deduction, county-level geography.</strong> Your
+        real number will differ.
+      </li>
+      <li>
+        <a href="/method/"><strong>Read the full method →</strong></a> Every source,
+        formula, assumption and known limitation, including the ones that make this
+        wrong.
+      </li>
+    </ul>
+  </footer>
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='app.js') }}"></script>
+{% endblock %}

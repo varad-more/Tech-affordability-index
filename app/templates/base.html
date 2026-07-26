@@ -1,0 +1,135 @@
+{#
+  Shared chrome for every page.
+
+  The nav and footer used to be copied into four HTML files, which is how the
+  brand name ended up needing a 69-reference find-and-replace during the rename.
+  They exist once now.
+
+  Links are absolute (/states/) rather than relative (states/, ../states/),
+  because Flask routes them from a single root and the old relative forms only
+  worked by accident of directory depth.
+#}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Affordability Index{% endblock %}</title>
+  <meta name="description" content="{% block description %}{% endblock %}">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Affordability Index">
+  <meta property="og:title" content="{{ self.title() }}">
+  <meta property="og:description" content="{{ self.description() }}">
+  {% if canonical is not none %}
+  <meta property="og:url" content="{{ config.SITE_ORIGIN }}/{{ canonical if canonical != '/' else '' }}">
+  <link rel="canonical" href="{{ config.SITE_ORIGIN }}/{{ canonical if canonical != '/' else '' }}">
+  {% else %}
+  <meta name="robots" content="noindex">
+  {% endif %}
+  <meta property="og:image" content="{{ config.SITE_ORIGIN }}/assets/og-card.jpg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>🏙️</text></svg>">
+</head>
+<body>
+
+<a class="skip-link" href="#content">Skip to content</a>
+
+<nav class="topnav">
+  <div class="topnav-inner">
+    <a class="brand" href="/">Affordability&nbsp;Index</a>
+    <div class="topnav-links">
+      <a href="/"{% if page == 'index' %} aria-current="page"{% endif %}>Explore</a>
+      <a href="/states/"{% if page == 'states' %} aria-current="page"{% endif %}>By state</a>
+      <a href="/timing/"{% if page == 'timing' %} aria-current="page"{% endif %}>When to move</a>
+      <a href="/method/"{% if page == 'method' %} aria-current="page"{% endif %}>Method</a>
+      <a href="https://github.com/varad-more/affordability-index">Source</a>
+      <button id="theme-toggle" type="button">Dark</button>
+    </div>
+  </div>
+</nav>
+
+<div class="{% block wrapclass %}wrap{% endblock %}" id="content">
+{% block content %}{% endblock %}
+</div>
+
+<footer class="site-footer">
+  <div class="footer-inner">
+
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <p class="footer-mark">Affordability Index</p>
+        <p class="footer-blurb">
+          What a place actually costs, against what you actually keep. Every US county,
+          priced on current rent and current-year tax law rather than on a gross number
+          in a job ad.
+        </p>
+        <p class="footer-freshness" id="footer-freshness"></p>
+      </div>
+
+      <nav class="footer-col" aria-label="Site">
+        <h2>The site</h2>
+        <ul>
+          <li><a href="/">Explore counties</a></li>
+          <li><a href="/states/">By state</a></li>
+          <li><a href="/timing/">When to move</a></li>
+          <li><a href="/method/">Method &amp; limitations</a></li>
+          <li><a href="https://github.com/varad-more/affordability-index">Source on GitHub</a></li>
+        </ul>
+      </nav>
+
+      <div class="footer-col footer-sources">
+        <h2>Where the numbers come from</h2>
+        <ul>
+          <li>
+            <a href="https://www.zillow.com/research/data/">Zillow ZORI</a>
+            <span>asking rent, monthly</span>
+          </li>
+          <li>
+            <a href="https://www.census.gov/programs-surveys/acs">US Census ACS</a>
+            <span>median gross rent, by unit size</span>
+          </li>
+          <li>
+            <a href="https://livingwage.mit.edu/">MIT Living Wage</a>
+            <span>every cost except rent</span>
+          </li>
+          <li>
+            <a href="https://taxfoundation.org/data/all/state/state-income-tax-rates-2026/">Tax Foundation</a>
+            <span>state income tax</span>
+          </li>
+          <li>
+            <a href="https://www.irs.gov/">IRS</a> and
+            <a href="https://www.ssa.gov/oact/cola/cbb.html">SSA</a>
+            <span>federal brackets, FICA, wage base</span>
+          </li>
+          <li>
+            <a href="https://www.levels.fyi/">Levels.fyi</a>
+            <span>the compensation presets</span>
+          </li>
+          <li>
+            <a href="https://github.com/topojson/us-atlas">us-atlas</a>
+            <span>county boundaries</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer-bar">
+      <p>
+        © 2026 Varad More ·
+        <a href="https://github.com/varad-more/affordability-index/blob/main/LICENSE">MIT licence</a>
+      </p>
+      <p class="footer-boast">
+        No trackers, no cookies, no analytics, no third-party requests. The typeface
+        and the map ship from this repository.
+      </p>
+    </div>
+
+  </div>
+</footer>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

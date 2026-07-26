@@ -1,0 +1,181 @@
+{% extends 'base.html' %}
+{% block title %}By state · Affordability Index{% endblock %}
+{% block description %}What a single adult must earn in each US state, from its cheapest county to its dearest, with the tax rules and the monthly budget behind the number.{% endblock %}
+
+{% block content %}
+  <header class="hero">
+    <p class="eyebrow">By state · <span id="tax-year-badge"></span> tax law</p>
+    <h1>A state is not<br>one place.</h1>
+    <p class="tagline">
+      Job posts, tax comparisons and relocation advice all talk in states. Costs do not.
+      This page gives each state the only honest summary there is: the county in the
+      middle, the two counties at the ends, and how far apart they are. Nothing here is a
+      state average, because nobody lives in one.
+    </p>
+    <div class="freshness" id="freshness"></div>
+  </header>
+
+  <div id="loading" class="loading">
+    <span class="spinner" aria-hidden="true"></span> Loading county data…
+  </div>
+
+  <main id="app" hidden>
+
+  <section class="panel">
+    <p class="eyebrow step">Step one</p>
+    <h2>Pick a state</h2>
+    <p class="sub">
+      Everything below follows from these three controls. The salary only affects the tax
+      figures, since what a place costs does not depend on what you earn.
+    </p>
+
+    <div class="picker-row picker-row-three">
+      <div class="field">
+        <label for="state-select">State</label>
+        <div class="select-wrap">
+          <select id="state-select"></select>
+        </div>
+        <div class="hint" id="state-hint"></div>
+      </div>
+
+      <div class="field money">
+        <label for="salary">Base salary</label>
+        <span class="input-wrap">
+          <span class="adorn" aria-hidden="true">$</span>
+          <input id="salary" type="number" min="0" step="1000" inputmode="numeric" value="130000">
+        </span>
+        <div class="hint">Drives the tax figures only</div>
+      </div>
+
+      <div class="field">
+        <label for="rent-basis">Rent measured by</label>
+        <div class="select-wrap">
+          <select id="rent-basis">
+            <option value="acs">Census ACS</option>
+            <option value="zori">Zillow ZORI</option>
+          </select>
+        </div>
+        <div class="hint" id="rent-basis-hint"></div>
+      </div>
+    </div>
+
+    <div class="verdict" id="verdict"></div>
+    <div class="stats" id="state-stats"></div>
+
+    <p class="callout warn" id="local-tax-warning" hidden></p>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow step">Step two</p>
+    <h2>The same question, on a map</h2>
+    <p class="sub" id="state-map-intro"></p>
+
+    <div class="control-group">
+      <span class="control-label" id="map-mode-label">What the shading means</span>
+      <div class="presets" id="map-modes" role="group" aria-labelledby="map-mode-label">
+        <button type="button" data-mode="county" aria-pressed="true">Every county</button>
+        <button type="button" data-mode="state" aria-pressed="false">Whole states</button>
+      </div>
+      <p class="control-note" id="map-mode-note"></p>
+    </div>
+
+    <div id="state-map"></div>
+    <div id="state-map-legend"></div>
+    <p class="sub" id="state-map-caption" style="margin-top:12px"></p>
+
+    <details class="table-view">
+      <summary>Every state as a table, ranked by spread</summary>
+      <div class="chart-scroll"><table id="state-map-table"></table></div>
+    </details>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow step">Step three</p>
+    <h2>What this state is like to be taxed in</h2>
+    <p class="sub">
+      The rules, not a rating. Two states with the same top rate can be very different at
+      an entry-level salary, which is why the bracket you actually land in is shown
+      alongside the headline rate.
+    </p>
+
+    <div class="state-detail">
+      <div class="chart-scroll"><table class="facts wide" id="tax-facts"></table></div>
+      <div class="chart-scroll"><table id="tax-table"></table></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow step">Step four</p>
+    <h2>Inside <span id="inside-state">the state</span></h2>
+    <p class="sub" id="county-heat-intro"></p>
+
+    <div class="chart-tall"><div class="chart-scroll"><div id="county-heat"></div></div></div>
+    <div id="county-heat-legend"></div>
+    <p class="sub" id="county-heat-caption" style="margin-top:12px"></p>
+  </section>
+
+  <section class="panel">
+    <h2>Every state, by where the money goes</h2>
+    <p class="sub">
+      Each row is that state's median county: a real place, with every figure in the row
+      taken from that same one. States are ordered by what a month costs there. Shading
+      runs down each column separately, because rent and a phone bill share no scale; the
+      printed figure is always the actual dollar amount.
+    </p>
+
+    <div class="chart-tall"><div class="chart-scroll"><div id="state-heat"></div></div></div>
+    <div id="state-heat-legend"></div>
+    <p class="sub" id="state-heat-caption" style="margin-top:12px"></p>
+  </section>
+
+  <section class="panel">
+    <h2>Where a state means least</h2>
+    <p class="sub">
+      How much dearer each state's most expensive county is than its cheapest. Near the
+      bottom of this chart a state is one market and a single figure is nearly fair. At the
+      top it is several, and any sentence beginning "in that state" is doing real damage.
+    </p>
+    <div class="chart-scroll"><div id="spread"></div></div>
+    <p class="sub" id="spread-caption" style="margin-top:12px"></p>
+  </section>
+
+  </main>
+
+  <footer class="notes">
+    <h2>What this page will not tell you</h2>
+    <ul>
+      <li>
+        <strong>The median is over counties, not people.</strong> No population figure
+        ships with this project, so a state's median county is its 50th-most-expensive
+        county, not the county half its residents live below. In states with many small
+        rural counties and one large city, that pulls the middle down: California's median
+        county is nothing like California's median resident.
+      </li>
+      <li>
+        <strong>No map on this site shades a state by what it costs.</strong> A choropleth
+        is only honest when one value stands for the whole shaded area, and "what this
+        state costs" never does. The state view of the map above shades the spread
+        instead, which is a fact about the state as a whole rather than about any place
+        inside it. For cost, switch the map to counties.
+      </li>
+      <li>
+        <strong>State tax is only part of the local picture.</strong> Local income tax is
+        modelled for New York City and Philadelphia alone. States where counties or
+        municipalities levy their own carry a warning above rather than a wrong number.
+      </li>
+      <li>
+        <strong>Coverage differs by rent basis.</strong> Census ACS covers essentially
+        every county; Zillow ZORI covers about 1,360 of them, so on the Zillow basis a
+        state's range is drawn from its larger counties only, which narrows it artificially.
+      </li>
+      <li>
+        <a href="/method/"><strong>Read the full method →</strong></a> Every source,
+        formula and known limitation, including the ones that make this wrong.
+      </li>
+    </ul>
+  </footer>
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='states.js') }}"></script>
+{% endblock %}
