@@ -7,7 +7,7 @@
  */
 
 import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, extname, normalize } from 'node:path';
 
@@ -23,15 +23,36 @@ const TYPES = {
   '.svg': 'image/svg+xml',
 };
 
+/** True if the path exists and is a directory. */
+async function isDir(path) {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://localhost:${PORT}`);
     const rel = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, '');
-    const path = join(ROOT, rel === '/' ? 'index.html' : rel);
+    let path = join(ROOT, rel);
 
     if (!path.startsWith(ROOT)) {
       res.writeHead(403).end('Forbidden');
       return;
+    }
+
+    // Directory indexes, the way GitHub Pages does them: /timing/ serves
+    // timing/index.html, and /timing redirects to /timing/ so that relative
+    // links inside the page resolve against the directory rather than its
+    // parent. Getting the redirect wrong locally would hide real broken links.
+    if (await isDir(path)) {
+      if (!url.pathname.endsWith('/')) {
+        res.writeHead(301, { Location: `${url.pathname}/${url.search}` }).end();
+        return;
+      }
+      path = join(path, 'index.html');
     }
 
     const body = await readFile(path);

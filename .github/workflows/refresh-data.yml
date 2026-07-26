@@ -33,12 +33,19 @@ jobs:
       - name: Fetch county ZORI
         run: node scripts/fetch-county-rents.mjs
 
+      # The timing page reads the full monthly history out of the same feed. If
+      # it is not rebuilt here it keeps naming an older last month than the map
+      # does, and two pages of one site disagree about how current they are.
+      - name: Rebuild rent history and seasonality
+        run: node scripts/build-rent-history.mjs
+
       - name: Verify the new data still passes
         run: node --test "test/*.test.mjs"
 
       - name: Commit if the data moved
         run: |
-          if git diff --quiet -- data/rents.json data/county-rents.json; then
+          FILES="data/rents.json data/county-rents.json data/rent-history.json"
+          if git diff --quiet -- $FILES; then
             echo "No change in rent data."
             exit 0
           fi
@@ -46,6 +53,6 @@ jobs:
           ASOF=$(node -p "require('./data/rents.json').asOf")
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/rents.json data/county-rents.json
+          git add $FILES
           git commit -m "data: refresh rents to ${ASOF}"
           git push

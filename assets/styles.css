@@ -1477,6 +1477,36 @@ svg text { font-family: var(--font); }
     grid-template-columns: 0.8fr 1.5fr;
     max-width: 560px;
   }
+  /* The state page asks three, and the state is the choice being made here
+     rather than a filter on one, so it takes the width the county gets elsewhere. */
+  .picker-row-three {
+    grid-template-columns: 1.3fr 1fr 1fr;
+    max-width: 800px;
+  }
+}
+
+/* A chart with one row per county or per state is a table's worth of rows, and
+   a state page holding two of them would be several screens of scrolling before
+   the reader reached anything else. Capping the height and letting the grid
+   scroll inside keeps every row present — nothing is sampled away — while the
+   page stays navigable. The cap is generous enough that most states fit whole. */
+.chart-tall {
+  max-height: 620px;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  border-radius: var(--radius);
+}
+
+/* The horizontal scroller nested inside must not add its own vertical one. */
+.chart-tall > .chart-scroll { overflow-y: visible; }
+
+.state-detail {
+  display: grid;
+  gap: 20px;
+}
+
+@media (min-width: 900px) {
+  .state-detail { grid-template-columns: 1.15fr 1fr; align-items: start; }
 }
 
 /* The verdict is the answer to the question in the headline, so it gets the band

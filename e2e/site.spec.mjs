@@ -421,7 +421,7 @@ test.describe('affordability index', () => {
     await expect(page.locator('#heatmap .cell-value')).toHaveCount(HUB_COUNT * PROFILE_COUNT);
 
     // The choice is stored, so following a link must not silently reset it.
-    await page.goto('/method.html');
+    await page.goto('/method/');
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
 
     expect(errors).toEqual([]);
@@ -500,7 +500,7 @@ test.describe('affordability index', () => {
   test('no page ever scrolls horizontally', async ({ page }) => {
     // Every page, at three widths. The nav is the usual culprit: it has no
     // scroll container of its own, so adding a link can silently widen the page.
-    for (const path of ['/', '/timing.html', '/method.html']) {
+    for (const path of ['/', '/states/', '/timing/', '/method/']) {
       for (const width of [1280, 768, 390]) {
         await page.setViewportSize({ width, height: 900 });
         await page.goto(path);
@@ -750,7 +750,7 @@ test.describe('affordability index', () => {
   test('the timing page draws the seasonal pattern and the trend', async ({ page }) => {
     const errors = watchForErrors(page);
 
-    await page.goto('/timing.html');
+    await page.goto('/timing/');
     await expect(page.locator('#seasonal svg')).toBeVisible({ timeout: 30_000 });
     await expect(page.locator('#loading')).toBeHidden();
 
@@ -774,7 +774,7 @@ test.describe('affordability index', () => {
   });
 
   test('the cheapest month named in the verdict is the lowest bar', async ({ page }) => {
-    await page.goto('/timing.html');
+    await page.goto('/timing/');
     await expect(page.locator('#seasonal svg')).toBeVisible({ timeout: 30_000 });
 
     const stats = page.locator('#timing-stats .stat');
@@ -797,7 +797,7 @@ test.describe('affordability index', () => {
   });
 
   test('switching county on the timing page changes the pattern', async ({ page }) => {
-    await page.goto('/timing.html');
+    await page.goto('/timing/');
     await expect(page.locator('#seasonal svg')).toBeVisible({ timeout: 30_000 });
 
     const before = await page.locator('#seasonal-caption').textContent();
@@ -813,7 +813,7 @@ test.describe('affordability index', () => {
 
   test('the method page loads and covers the limitations', async ({ page }) => {
     const errors = watchForErrors(page);
-    await page.goto('/method.html');
+    await page.goto('/method/');
 
     await expect(page.locator('h1')).toContainText('How every number');
     // The limitations section is the part that must never quietly disappear.
@@ -824,7 +824,7 @@ test.describe('affordability index', () => {
     await expect(page.locator('#sources')).toContainText('B25031');
     await expect(page.locator('#sources')).toContainText('one bedroom is the default');
     await expect(page.locator('#timing')).toContainText(/centred moving average/i);
-    await expect(page.locator('a[href="index.html"]').first()).toBeVisible();
+    await expect(page.locator('a[href="../"]').first()).toBeVisible();
 
     expect(errors).toEqual([]);
   });
@@ -946,7 +946,7 @@ test.describe('affordability index', () => {
 
   test('the timing page gets the same picker, filtered by state', async ({ page }) => {
     const errors = watchForErrors(page);
-    await page.goto('/timing.html');
+    await page.goto('/timing/');
     await expect(page.locator('#seasonal svg')).toBeVisible({ timeout: 30_000 });
 
     // It opens on San Francisco, somewhere a reader has an intuition about,
@@ -995,7 +995,7 @@ test.describe('affordability index', () => {
         return out;
       });
 
-    for (const path of ['/', '/timing.html', '/method.html']) {
+    for (const path of ['/', '/states/', '/timing/', '/method/']) {
       await page.goto(path);
       await expect(page.locator('#loading')).toBeHidden({ timeout: 30_000 });
       await page.evaluate(() => {
@@ -1014,7 +1014,7 @@ test.describe('affordability index', () => {
   });
 
   test('every page ends with the same footer, and it names its sources', async ({ page }) => {
-    for (const path of ['/', '/timing.html', '/method.html']) {
+    for (const path of ['/', '/states/', '/timing/', '/method/']) {
       await page.goto(path);
       const footer = page.locator('.site-footer');
       await expect(footer, `no site footer on ${path}`).toBeVisible();
@@ -1192,7 +1192,7 @@ test.describe('affordability index', () => {
 
   test('the math section renders as maths and matches the engine', async ({ page }) => {
     const errors = watchForErrors(page);
-    await page.goto('/method.html');
+    await page.goto('/method/');
 
     // MathML is rendered by the browser itself — the site loads no CDN, so KaTeX
     // and MathJax are both out. If native support were missing the markup would
@@ -1225,5 +1225,45 @@ test.describe('affordability index', () => {
     expect(body).toContain(`${(FEDERAL.brackets.at(-1).rate * 100).toFixed(0)}%`);
 
     expect(errors).toEqual([]);
+  });
+
+  test('pages are served from clean URLs, and the old ones still work', async ({ page }) => {
+    // A directory index means /timing/ is the real page. Without the trailing
+    // slash the server has to redirect, or every relative link on the page
+    // resolves one level too high and the whole page 404s its own assets.
+    for (const dir of ['states', 'timing', 'method']) {
+      const bare = await page.request.get(`/${dir}`, { maxRedirects: 0 });
+      expect(bare.status(), `/${dir} should redirect to /${dir}/`).toBe(301);
+      expect(bare.headers().location).toBe(`/${dir}/`);
+    }
+
+    // The two URLs that were public before the move must not break.
+    for (const [stub, dest] of [['/timing.html', '/timing/'], ['/method.html', '/method/']]) {
+      await page.goto(stub);
+      await page.waitForURL(`**${dest}`);
+      await expect(page.locator('h1')).toBeVisible();
+    }
+  });
+
+  test('every internal link on every page resolves', async ({ page }) => {
+    // The clean-URL move rewrote every href by hand. A typo in one of them is
+    // invisible until someone clicks it, and looks exactly like a working site.
+    for (const path of ['/', '/states/', '/timing/', '/method/']) {
+      await page.goto(path);
+
+      const links = await page.locator('a[href]').evaluateAll((nodes) =>
+        nodes
+          .map((n) => n.href)
+          .filter((href) => href.startsWith(location.origin))
+          .filter((href, i, all) => all.indexOf(href) === i),
+      );
+      expect(links.length, `no internal links found on ${path}`).toBeGreaterThan(3);
+
+      for (const href of links) {
+        const res = await page.request.get(href);
+        expect(res.status(), `${href} is linked from ${path} but returns ${res.status()}`)
+          .toBeLessThan(400);
+      }
+    }
   });
 });

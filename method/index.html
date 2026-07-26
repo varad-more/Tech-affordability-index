@@ -1,0 +1,944 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Method · Tech Affordability Index</title>
+  <meta name="description" content="Every source, formula, assumption and known limitation behind the Tech Affordability Index.">
+  <link rel="stylesheet" href="../assets/styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>🏙️</text></svg>">
+</head>
+<body>
+
+<a class="skip-link" href="#content">Skip to content</a>
+
+<nav class="topnav">
+  <div class="topnav-inner">
+    <a class="brand" href="../">Tech&nbsp;Affordability&nbsp;Index</a>
+    <div class="topnav-links">
+      <a href="../">Explore</a>
+      <a href="../states/">By state</a>
+      <a href="../timing/">When to move</a>
+      <a href="../method/" aria-current="page">Method</a>
+      <a href="https://github.com/varad-more/Tech-affordability-index">Source</a>
+      <button id="theme-toggle" type="button">Dark</button>
+    </div>
+  </div>
+</nav>
+
+<div class="wrap prose" id="content">
+
+  <header class="method-head">
+    <p class="eyebrow">Method</p>
+    <h1>How every number on this site is produced</h1>
+    <p class="tagline">
+      Nothing here is estimated, smoothed toward a nicer answer, or filled in when a
+      source is unavailable. Where a figure cannot be obtained honestly, the site says so
+      instead of inventing one. This page is the full accounting, including the parts
+      that do not work.
+    </p>
+  </header>
+
+  <nav class="toc" aria-label="On this page">
+    <a href="#question">The question</a>
+    <a href="#sources">Data sources</a>
+    <a href="#bands">The band model</a>
+    <a href="#math">The math</a>
+    <a href="#tax">The tax engine</a>
+    <a href="#map">The map</a>
+    <a href="#states">By state</a>
+    <a href="#timing">Seasonality</a>
+    <a href="#comp">Compensation</a>
+    <a href="#limits">Known limitations</a>
+    <a href="#reproduce">Read the source</a>
+  </nav>
+
+  <section id="question">
+    <h2>The question this answers</h2>
+    <p>
+      Most cost-of-living tools answer a <em>relative</em> question: given a salary, where
+      does it stretch furthest? That produces a ranking, but a ranking never tells you
+      whether any option on it is actually affordable. Two places with an identical 28%
+      rent burden are not equally livable if one has materially higher transport and
+      medical costs, and a rent-share chart cannot see that difference at all.
+    </p>
+    <p>
+      So the model here is <strong>absolute</strong>. For every county it asks what a
+      single adult must spend to live there, then works backwards through the tax code to
+      the salary that covers it. The answer is a dollar figure you can hold an offer up
+      against.
+    </p>
+  </section>
+
+  <section id="sources">
+    <h2>Data sources</h2>
+
+    <h3>Rent: Zillow Observed Rent Index</h3>
+    <table class="facts">
+      <tr><th>What</th><td>Smoothed asking rent, all home types (single-family, condo, multifamily)</td></tr>
+      <tr><th>Geography</th><td>County and metro</td></tr>
+      <tr><th>Refresh</th><td>Monthly, automatically, by a scheduled GitHub Action</td></tr>
+      <tr><th>Coverage</th><td>About 1,360 of the ~3,140 US counties</td></tr>
+    </table>
+    <p>
+      ZORI is <strong>not</strong> a one-bedroom median, and is never labelled as one.
+      Zillow publishes no bedroom-level series at this geography. It is an asking-rent
+      index, so it tracks what is being listed now rather than what existing tenants pay,
+      which makes it lead the market slightly.
+    </p>
+    <p>
+      The git history of <code>data/county-rents.json</code> <em>is</em> the freshness
+      record: every refresh is a dated, diffable commit, so the claim that this data is
+      current is auditable rather than asserted.
+    </p>
+
+    <h3>Rent, complete coverage: Census ACS</h3>
+    <table class="facts">
+      <tr><th>What</th><td>Median gross rent (contract rent plus utilities), table B25031, broken out by bedroom count</td></tr>
+      <tr><th>Geography</th><td>County</td></tr>
+      <tr><th>Refresh</th><td>Annual, five-year rolling estimate</td></tr>
+      <tr><th>Coverage</th><td>3,123 of 3,142 counties (99.4%); 2,920 also publish a one-bedroom figure</td></tr>
+    </table>
+
+    <h4>Why unit size matters, and why one bedroom is the default</h4>
+    <p>
+      The whole model prices <strong>one adult with no children</strong>, the same
+      household MIT budgets for. But an all-bedroom median is pulled upward by
+      family-sized units, so using it prices a single person against housing they would
+      not rent. King County is $2,035 across all sizes against $1,813 for a one-bedroom;
+      Los Angeles is $1,893 against $1,661. That is a 10–17% overstatement flowing
+      straight into every salary threshold, which is why the default is a one-bedroom
+      rather than the headline median.
+    </p>
+    <p>
+      Studio and two-bedroom figures are available too. Rarer sizes are suppressed in
+      thin counties, so each falls back to the overall median and says which figure it
+      used rather than dropping the county from the map.
+    </p>
+    <p>
+      ZORI is current but partial; ACS is complete but lagged. Both are offered, and the
+      site <strong>never converts one into the other</strong>. A single national ZORI/ACS
+      multiplier was tested against the 1,351 counties carrying both and rejected:
+      correlation 0.675, median error 11%, ninetieth-percentile error 27%, with Pitkin
+      County (Aspen) off by a factor of nine. An 11% error in rent moves the salary
+      thresholds by roughly the same proportion, which is tens of thousands of dollars, so
+      no county's rent is ever inferred from another source.
+    </p>
+    <p class="callout">
+      One consequence worth knowing: ACS gross rent <em>includes</em> utilities and ZORI
+      does not. MIT's non-housing budget excludes them too, since they sit inside the
+      housing row this project discards. So the ACS basis is the more complete measure of
+      what a month costs, and the ZORI basis omits utilities altogether. That is perhaps
+      $150 to $250 a month.
+    </p>
+
+    <h3>Everything except rent: MIT Living Wage Calculator</h3>
+    <table class="facts">
+      <tr><th>What</th><td>Food, medical, transport, internet &amp; mobile, civic, and other</td></tr>
+      <tr><th>Household</th><td>One adult, no children</td></tr>
+      <tr><th>Geography</th><td>County</td></tr>
+      <tr><th>Coverage</th><td>3,133 of 3,142 counties (99.7%)</td></tr>
+      <tr><th>Refresh</th><td>Annual, by MIT</td></tr>
+    </table>
+    <p>
+      MIT's figures are assembled from USDA food plans, MEPS medical expenditure data and
+      BLS transport surveys. Crucially, the calculator's bottom line is a
+      <strong>net</strong> requirement, meaning income needed <em>after</em> tax. That
+      matches this site's net-based model exactly, with no risk of taxing the same dollar
+      twice.
+    </p>
+    <p>
+      Its housing row is <strong>discarded</strong>. MIT prices housing from HUD Fair
+      Market Rent, published annually; ZORI refreshes monthly, and keeping one live rent
+      series is the entire point of this project. Mixing two rent definitions into one
+      budget would double-count and stale the result at once.
+    </p>
+    <p class="callout">
+      The ingest re-derives MIT's own stated total from its component rows on every fetch
+      and refuses the data if they disagree by more than $12. That check exists because
+      the failure it catches, a shifted table column silently yielding a two-adult budget,
+      produces numbers that look entirely plausible.
+    </p>
+
+    <h3>Tax: Tax Foundation, IRS and SSA</h3>
+    <table class="facts">
+      <tr><th>Federal</th><td>2026 brackets and standard deduction (IRS Rev. Proc. 2025-32, post-OBBBA)</td></tr>
+      <tr><th>FICA</th><td>SSA contribution and benefit base; statutory Additional Medicare threshold</td></tr>
+      <tr><th>State</th><td>All 50 states and DC, single-filer brackets and each state's own deduction</td></tr>
+    </table>
+
+    <h3>County boundaries: us-atlas</h3>
+    <p>
+      US Census Bureau cartographic boundaries at 1:10,000,000, as TopoJSON. Decoded,
+      projected and flattened to SVG paths at build time so the browser does no geometry
+      work and loads no mapping library.
+    </p>
+  </section>
+
+  <section id="bands">
+    <h2>The band model</h2>
+
+    <p>For each county, the monthly cost of living is:</p>
+    <pre><code>needs = rent  +  MIT non-housing essentials</code></pre>
+    <p>
+      where <code>rent</code> is whichever basis you have selected, Census ACS or Zillow
+      ZORI. The rest of the model is identical either way.
+    </p>
+
+    <p>
+      Three salary thresholds are then defined by where that figure lands as a share of
+      <em>take-home</em> pay. Every cut is a published budgeting standard rather than a
+      number chosen because it looked reasonable:
+    </p>
+
+    <table class="facts wide">
+      <thead>
+        <tr><th>Threshold</th><th>Rule</th><th>Where it comes from</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Survival</strong></td>
+          <td><code>needs = 100% of take-home</code></td>
+          <td>MIT's living wage is explicitly a subsistence budget: no savings, no
+              travel, no meals out. Covering it exactly is the floor, not a target.</td>
+        </tr>
+        <tr>
+          <td><strong>Getting by</strong></td>
+          <td><code>needs = 70% of take-home</code></td>
+          <td>The 70/20/10 budget, leaving 20% for savings and 10% for debt or giving.</td>
+        </tr>
+        <tr>
+          <td><strong>Comfortable</strong></td>
+          <td><code>needs = 50% of take-home</code></td>
+          <td>The 50/30/20 rule, leaving 30% discretionary and 20% savings.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Why the thresholds are solved numerically</h3>
+    <p>
+      Going from "I need $4,600 a month after tax" back to a gross salary has no clean
+      algebraic answer. Take-home is piecewise-linear in gross, with kinks at every
+      federal and state bracket edge, at the Social Security wage cap, and at the
+      Additional Medicare threshold. It is, however, <em>strictly increasing</em>, which
+      is all bisection needs.
+    </p>
+    <p>
+      So <code>grossForNet()</code> bisects the tax engine to the cent. One implementation
+      then covers every state, every bracket and both modelled city taxes automatically,
+      and it stays correct when the tax year rolls. The test suite pins this by
+      round-tripping salaries forward and back, including deliberately at the wage cap
+      where a closed-form shortcut would go wrong.
+    </p>
+
+    <h3>Why the map is not simply painted with those four bands</h3>
+    <p>
+      At an entry-level tech salary, more than nine counties in ten fall into
+      "comfortable". A four-class map would be a single colour almost everywhere and the
+      encoding would carry no information. The underlying quantity is continuous and
+      varies a great deal <em>inside</em> that band: necessities take about a quarter of
+      take-home in rural Ohio and about two-thirds in the Bay Area.
+    </p>
+    <p>
+      The map therefore shades the continuous share, using the band boundaries as class
+      breaks. The top three breaks are exactly the named standards (50%, 70%, 100%), so
+      the map and the written verdict can never disagree; the lower breaks subdivide the
+      crowded comfortable end where the real variation lives.
+    </p>
+  </section>
+
+  <section id="math">
+    <h2>The model in symbols</h2>
+    <p>
+      Everything above, stated formally. These are the expressions the code evaluates,
+      not a tidied-up version of them. Where the notation and the implementation once
+      disagreed, the notation was corrected, and the three places that happened are
+      called out below.
+    </p>
+
+    <h3>Variables</h3>
+    <table class="facts wide">
+      <thead><tr><th>Symbol</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><th><math><mi>B</mi></math></th>
+            <td>Annual base salary.</td></tr>
+        <tr><th><math><msub><mi>G</mi><mtext>rsu</mtext></msub></math></th>
+            <td>Total equity grant value, over the whole four-year vest.</td></tr>
+        <tr><th><math><msub><mi>v</mi><mi>y</mi></msub></math></th>
+            <td>Fraction of the grant vesting in year <math><mi>y</mi></math>, for example
+                <math><mn>0.05</mn></math> for Amazon's 5% first year. The four values sum
+                to 1.</td></tr>
+        <tr><th><math><msub><mi>C</mi><mi>y</mi></msub></math></th>
+            <td>Cash bonus paid in year <math><mi>y</mi></math>, which is how a split
+                sign-on is represented.</td></tr>
+        <tr><th><math><mi>δ</mi></math></th>
+            <td>Equity haircut: the share of a grant counted as real. <strong>Not a
+                universal 0.85.</strong> It is a property of the offer: 0.85 for the
+                public-company presets, <strong>0</strong> for the Series&nbsp;B startup,
+                because you cannot pay rent with illiquid private shares. It is also
+                editable.</td></tr>
+        <tr><th><math><mi>T</mi><mo>(</mo><mi>I</mi><mo>,</mo><mi>L</mi><mo>)</mo></math></th>
+            <td>Total tax liability on gross wage income <math><mi>I</mi></math> in
+                jurisdiction <math><mi>L</mi></math>. Expanded below.</td></tr>
+        <tr><th><math><msub><mi>R</mi><mi>m</mi></msub></math></th>
+            <td>Median monthly rent. <strong>County</strong>, not ZIP code, and one bedroom
+                by default, on whichever rent basis is selected.</td></tr>
+        <tr><th><math><msub><mi>N</mi><mi>c</mi></msub></math></th>
+            <td>MIT's monthly non-housing essentials for one adult in that county.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>The tax function includes payroll</h3>
+    <p>
+      <math><mi>T</mi></math> is often written as federal + state + city. That would leave
+      out the largest single deduction after federal income tax. What the engine actually
+      computes is:
+    </p>
+    <math display="block" class="eq">
+      <mi>T</mi><mo>(</mo><mi>I</mi><mo>,</mo><mi>L</mi><mo>)</mo>
+      <mo>=</mo>
+      <msub><mi>T</mi><mtext>fed</mtext></msub><mo>(</mo><mi>I</mi><mo>)</mo>
+      <mo>+</mo>
+      <msub><mi>T</mi><mtext>FICA</mtext></msub><mo>(</mo><mi>I</mi><mo>)</mo>
+      <mo>+</mo>
+      <msub><mi>T</mi><mtext>state</mtext></msub><mo>(</mo><mi>I</mi><mo>,</mo><mi>L</mi><mo>)</mo>
+      <mo>+</mo>
+      <msub><mi>T</mi><mtext>payroll</mtext></msub><mo>(</mo><mi>I</mi><mo>,</mo><mi>L</mi><mo>)</mo>
+      <mo>+</mo>
+      <msub><mi>T</mi><mtext>city</mtext></msub><mo>(</mo><mi>I</mi><mo>,</mo><mi>L</mi><mo>)</mo>
+    </math>
+    <p>
+      FICA alone is 7.65% up to the Social Security wage base: 6.2% Social Security capped
+      at $184,500, 1.45% uncapped Medicare, plus 0.9% on wages over $200,000. The payroll
+      term covers employee-side state levies such as California SDI and Washington's Cares
+      and paid-leave premiums. Omitting either would overstate take-home by thousands a
+      year on exactly the salaries this tool is aimed at.
+    </p>
+
+    <h3>Equity and liquid income</h3>
+    <p>Equity counted in year <math><mi>y</mi></math>, after the haircut:</p>
+    <math display="block" class="eq">
+      <msub><mi>E</mi><mi>y</mi></msub><mo>=</mo>
+      <msub><mi>G</mi><mtext>rsu</mtext></msub><mo>×</mo>
+      <msub><mi>v</mi><mi>y</mi></msub><mo>×</mo><mi>δ</mi>
+    </math>
+
+    <p>
+      <strong>Liquid monthly base</strong>, the headline figure, taxing base salary alone.
+      This is the money that arrives on the same day every month, which is the only kind
+      that reliably clears a rent payment:
+    </p>
+    <math display="block" class="eq">
+      <msub><mi>M</mi><mtext>base</mtext></msub><mo>=</mo>
+      <mfrac>
+        <mrow><mi>B</mi><mo>−</mo><mi>T</mi><mo>(</mo><mi>B</mi><mo>,</mo><mi>L</mi><mo>)</mo></mrow>
+        <mn>12</mn>
+      </mfrac>
+    </math>
+
+    <p>
+      <strong>Liquid monthly total</strong> for year <math><mi>y</mi></math>, once bonus and
+      vested equity are counted. Note that the tax function is applied to the
+      <em>combined</em> figure rather than to each part separately. Vested RSUs are
+      ordinary W-2 wage income in the year they vest, so they stack onto the same
+      progressive base and push the marginal rate up:
+    </p>
+    <math display="block" class="eq">
+      <msub><mi>M</mi><mrow><mtext>total</mtext><mo>,</mo><mi>y</mi></mrow></msub><mo>=</mo>
+      <mfrac>
+        <mrow>
+          <mo>(</mo><mi>B</mi><mo>+</mo><msub><mi>C</mi><mi>y</mi></msub><mo>+</mo><msub><mi>E</mi><mi>y</mi></msub><mo>)</mo>
+          <mo>−</mo>
+          <mi>T</mi><mo>(</mo><mi>B</mi><mo>+</mo><msub><mi>C</mi><mi>y</mi></msub><mo>+</mo><msub><mi>E</mi><mi>y</mi></msub><mo>,</mo><mi>L</mi><mo>)</mo>
+        </mrow>
+        <mn>12</mn>
+      </mfrac>
+    </math>
+
+    <h3>Affordability ratios</h3>
+    <p>
+      The share of net monthly income that median rent consumes. Lower is more affordable;
+      0.30 is HUD's cost-burdened line.
+    </p>
+    <math display="block" class="eq">
+      <msub><mi>ρ</mi><mtext>base</mtext></msub><mo>=</mo>
+      <mfrac><msub><mi>R</mi><mi>m</mi></msub><msub><mi>M</mi><mtext>base</mtext></msub></mfrac>
+      <mspace width="2.5em"/>
+      <msub><mi>ρ</mi><mrow><mtext>total</mtext><mo>,</mo><mi>y</mi></mrow></msub><mo>=</mo>
+      <mfrac><msub><mi>R</mi><mi>m</mi></msub><msub><mi>M</mi><mrow><mtext>total</mtext><mo>,</mo><mi>y</mi></mrow></msub></mfrac>
+    </math>
+    <p>
+      Both are left undefined, and drawn as a gap rather than as zero, whenever
+      <math><mi>M</mi><mo>≤</mo><mn>0</mn></math>. An offer that nets nothing monthly cannot
+      cover any rent, and rendering that as <math><mi>∞</mi></math> would put a bar off the
+      end of a chart.
+    </p>
+
+    <h3>The band model</h3>
+    <p>
+      The ratios above answer a <em>relative</em> question. The county model answers an
+      absolute one, and needs one more term for everything that is not rent:
+    </p>
+    <math display="block" class="eq">
+      <msub><mi>n</mi><mi>c</mi></msub><mo>=</mo>
+      <msub><mi>R</mi><mi>m</mi></msub><mo>+</mo><msub><mi>N</mi><mi>c</mi></msub>
+      <mspace width="2.5em"/>
+      <mi>σ</mi><mo>=</mo>
+      <mfrac><msub><mi>n</mi><mi>c</mi></msub><msub><mi>M</mi><mtext>base</mtext></msub></mfrac>
+    </math>
+    <p>
+      <math><mi>σ</mi></math> is the quantity the map shades and the verdict names. The
+      three salary thresholds invert it. Writing the take-home function as
+      <math><mi>G</mi><mo>(</mo><mi>x</mi><mo>)</mo><mo>=</mo><mi>x</mi><mo>−</mo><mi>T</mi><mo>(</mo><mi>x</mi><mo>,</mo><mi>L</mi><mo>)</mo></math>,
+      the salary at which essentials take a share <math><mi>s</mi></math> is:
+    </p>
+    <math display="block" class="eq">
+      <mi>S</mi><mo>(</mo><mi>s</mi><mo>)</mo><mo>=</mo>
+      <msup><mi>G</mi><mrow><mo>−</mo><mn>1</mn></mrow></msup>
+      <mrow><mo>(</mo>
+        <mfrac><mrow><mn>12</mn><msub><mi>n</mi><mi>c</mi></msub></mrow><mi>s</mi></mfrac>
+      <mo>)</mo></mrow>
+      <mo>,</mo>
+      <mspace width="1em"/>
+      <mi>s</mi><mo>∈</mo>
+      <mo>{</mo><mn>1.0</mn><mo>,</mo><mn>0.7</mn><mo>,</mo><mn>0.5</mn><mo>}</mo>
+    </math>
+    <p>
+      <math><msup><mi>G</mi><mrow><mo>−</mo><mn>1</mn></mrow></msup></math> has no closed
+      form, because <math><mi>G</mi></math> is piecewise-linear with kinks at every bracket
+      edge, the wage cap and the Additional Medicare threshold, so it is evaluated by bisection,
+      as described above. The three values of <math><mi>s</mi></math> are the survival,
+      getting-by and comfortable lines.
+    </p>
+
+    <h3>Why the tax function has to be progressive</h3>
+    <p>
+      A flat effective rate is the shortcut that makes a model like this wrong in the one
+      direction that matters. For tax year 2026 the federal standard deduction for a single
+      filer is $16,100 and the brackets run from 10% up to 37% on income above $640,600, so
+      a junior engineer on a $130,000 base and a staff engineer on $400,000 of total
+      compensation face materially different effective burdens. Modelling both at one rate
+      would flatter one and penalise the other. And since equity stacks onto the same
+      progressive base, a flat rate would also erase exactly the year-to-year movement the
+      vesting panels exist to show.
+    </p>
+  </section>
+
+  <section id="tax">
+    <h2>The tax engine</h2>
+    <p>
+      Single filer, standard deduction, wage income only. The engine holds
+      <strong>no constants</strong>. Every figure lives in <code>src/tax-data.js</code>
+      with the URL it came from, so rolling to a new tax year touches one file.
+    </p>
+    <ul>
+      <li><strong>Federal.</strong> Marginal brackets over income after the standard deduction.</li>
+      <li><strong>FICA.</strong> 6.2% Social Security to the annual wage base, 1.45%
+          Medicare uncapped, plus the 0.9% Additional Medicare surtax above $200,000.
+          That threshold is fixed in statute and is <em>not</em> inflation-adjusted.</li>
+      <li><strong>State.</strong> Each state's own brackets and its <em>own</em>
+          standard deduction. Applying the federal deduction to state taxable income is a
+          common and material bug: California's is $5,540, not $16,100.</li>
+      <li><strong>State payroll levies.</strong> California SDI, Washington PFML and WA
+          Cares, assessed on gross wages rather than taxable income.</li>
+      <li><strong>City income tax.</strong> New York City and Philadelphia.</li>
+    </ul>
+    <p class="callout">
+      Philadelphia's wage tax is 3.735%. A search summary during development confidently
+      reported 2.235%; the figure was checked against the City of Philadelphia's own
+      publication and corrected. This is why every constant in the file carries a primary
+      source, and why the two local taxes that <em>are</em> modelled are the two that
+      could be verified against the taxing authority itself.
+    </p>
+  </section>
+
+  <section id="map">
+    <h2>The map</h2>
+
+    <h3>Why counties, and why not states</h3>
+    <p>
+      An earlier draft shaded whole states. That cannot work: Texas contains both Austin
+      and Dallas, and California contains four metros that disagree with each other, so
+      any state fill would have had to invent a number none of them supports. A choropleth
+      is only honest when there is genuinely one value per shaded area, which is true at
+      county level and false at state level. The state page exists for the questions where
+      one number per state <em>is</em> the honest answer, and it reports a range rather
+      than shading the state as though it were uniform.
+    </p>
+
+    <h3>Projection</h3>
+    <p>
+      Albers USA: an equal-area conic projection for the lower 48, with Alaska and Hawaii
+      as the conventional insets. Equal-area matters here because the map exists to
+      compare places, and a Mercator-style projection would inflate the northern states
+      enough to distort that comparison.
+    </p>
+    <p>
+      It is implemented from scratch in <code>src/projection.js</code>, because the
+      deployed site carries zero runtime dependencies and loads no CDN. To make sure that
+      "from scratch" did not mean "subtly wrong", the implementation was checked against
+      <code>d3-geo</code> across 27 named locations and 4,982 grid points spanning the
+      whole continental envelope, including the antimeridian, where the Aleutians cross
+      from +179° to −179°. Agreement was exact to floating-point precision, and the
+      fixtures generated from d3-geo are committed so the test suite keeps pinning it.
+    </p>
+
+    <h3>Zoom, and why the borders are simplified per arc</h3>
+    <p>
+      The map zooms to 32× with the scroll wheel, a pinch, the buttons, or the plus and
+      minus keys, and one button frames whichever county is selected. All of it is a
+      single transform on one group. At 3,142 shapes, anything that touches per-path
+      geometry on a wheel event is a slideshow rather than a map.
+    </p>
+    <p>
+      Zooming exposed a flaw that had been invisible at full extent. Boundaries are
+      simplified with Douglas-Peucker to keep the committed file small, and an earlier
+      build simplified each finished county ring. Two neighbouring counties share the
+      border between them, so that border was being approximated twice, from different
+      vertex neighbourhoods, and the two polygons stopped agreeing on where it ran. At 1×
+      the disagreement was sub-pixel. Zoomed in it opened into a white sliver between every
+      pair of counties. Simplification now runs on the shared <em>arc</em>, which is the
+      thing TopoJSON stores shared arcs for in the first place, so both counties are
+      guaranteed the identical vertex list rather than merely a very similar one. It grew about
+      10%, which is what the correctness costs.
+    </p>
+
+    <h3>County names</h3>
+    <p>
+      Boundary files carry a bare name, "King" or "Orleans", so the official name comes
+      from the Census county gazetteer instead. That matters because the suffix is not
+      always "County": Louisiana has parishes, Alaska has boroughs and census areas, and
+      Virginia has independent cities, so deriving it from the state would get all three
+      wrong. The build fails if any county is missing a name rather than shipping a
+      partial label.
+    </p>
+    <p>
+      Nine county-equivalents are named explicitly because the boundary file predates the
+      gazetteer: Connecticut replaced its eight counties with planning regions in 2022, and
+      Alaska split Valdez-Cordova in 2019. Zillow still reports on the old Connecticut
+      counties, so the map keeps drawing them.
+    </p>
+
+    <h3>Grey counties</h3>
+    <p>
+      On the Zillow basis, more than half of US counties are drawn unshaded because Zillow
+      publishes no rent index for them. They are mostly rural, with too little listing
+      volume for a stable index. Switching to the Census basis fills them in with real
+      measured figures. Nothing is ever estimated from neighbours or from a state average,
+      because a map that guesses looks exactly like a map that knows.
+    </p>
+    <p>
+      A handful stay grey on both bases: Connecticut, whose counties no longer join MIT's
+      planning-region geography, and about ten counties where the Census suppresses the
+      rent estimate for confidentiality.
+    </p>
+    <p>
+      HUD's Fair Market Rents were the first candidate for complete coverage and are
+      unusable here: <code>huduser.gov</code> answers automated requests with an AWS WAF
+      challenge rather than data. That is worth stating plainly, because it is the
+      same failure that left this project's <em>original</em> rent extractor silently
+      serving four hardcoded rows for its entire existence. That is the bug that motivated
+      rebuilding it to fail loudly.
+    </p>
+  </section>
+
+  <section id="states">
+    <h2>How a state gets a number</h2>
+    <p>
+      Job posts, tax comparisons and relocation advice all talk in states, so the state
+      page answers in states. It just refuses to do it by averaging. Every figure it shows
+      is taken from a <strong>real county</strong> and labelled with that county's name,
+      which means a reader can always go and check the place the number came from.
+    </p>
+    <table class="facts wide">
+      <thead>
+        <tr><th>Figure</th><th>How it is produced</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>The median county</strong></td>
+          <td>Every county in the state that has a rent figure on the chosen basis is
+              ranked by total monthly cost, and the one in the middle is reported by name.
+              It is a selection, not a calculation: no value is averaged into existence.</td>
+        </tr>
+        <tr>
+          <td><strong>The cheapest and dearest</strong></td>
+          <td>The two ends of that same ranking, also named. These bound what the state
+              can honestly be said to cost.</td>
+        </tr>
+        <tr>
+          <td><strong>The spread</strong></td>
+          <td>Dearest divided by cheapest. It is a measure of how misleading any single
+              figure for that state would be, which is why the page leads with it.</td>
+        </tr>
+        <tr>
+          <td><strong>Tax</strong></td>
+          <td>The same engine described above, run on the salary you enter. This is the
+              one genuinely state-level quantity on the page, because income tax law
+              really is written per state.</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="callout warn">
+      The median is over <strong>counties, not people</strong>. No population figure ships
+      with this project, so a state's median county is its middle county by cost, not the
+      county half its residents live below. In a state with many small rural counties and
+      one large city, that pulls the middle down: California's median county is nothing
+      like California's median resident. Treat it as the midpoint of the state's
+      geography, which is what it is, and not as a typical experience of living there.
+    </p>
+    <p>
+      Coverage also moves the answer. On the Census basis nearly every county is present;
+      on the Zillow basis only about 1,360 nationally, and they are the larger ones, so a
+      state's range is drawn from its cities and comes out artificially narrow. The page
+      says which basis it is on and how many counties it found.
+    </p>
+  </section>
+
+  <section id="timing">
+    <h2>Seasonality, and the "when to move" page</h2>
+    <p>
+      The county rent file carries 138 monthly columns going back to 2015, and the
+      affordability model reads exactly two of them. The rest is a decade of history that
+      answers a different question: not <em>where</em> to move, but <em>when</em>.
+    </p>
+
+    <h3>Classical multiplicative decomposition</h3>
+    <p>For each county's monthly series:</p>
+<pre><code>trend[i]  = 12-month CENTRED moving average, half weight on the two end months
+ratio[i]  = value[i] / trend[i]
+index[m]  = mean of ratio[i] for every i falling in calendar month m
+            normalised so the twelve indices average to exactly 1.0</code></pre>
+    <p>
+      The centring is what makes it work. A trailing average lags the series by six
+      months and would smear the seasonal peak into the wrong months entirely. The half
+      weight on the first and last month of the window keeps it spanning exactly twelve
+      months, so no calendar month is counted twice.
+    </p>
+    <p>
+      The result reads directly: 0.98 for January means January rents sit about 2% below
+      that year's own trend. Dividing by the trend, rather than subtracting it, is what
+      separates the seasonal pattern from the long-run climb. A market growing 5% a year
+      would otherwise show every autumn as "expensive" purely because it came later.
+    </p>
+
+    <h3>What is deliberately excluded</h3>
+    <p>
+      A calendar month needs at least three observations before it enters its average, so
+      about half the counties in the rent file are shown with a trend chart but no
+      seasonal pattern. Publishing a January estimate built from one January would be
+      false precision dressed as insight.
+    </p>
+
+    <h3>How large the effect really is</h3>
+    <p>
+      Median peak-to-trough swing, among counties that clear the bar: about
+      <strong>2%</strong>. On a $2,000 rent that is roughly $40 a month. Real, worth
+      knowing, and far smaller than the differences between places, which is why the page
+      says so at the top rather than in a footnote.
+    </p>
+    <p class="callout">
+      ZORI is a <em>smoothed</em> index, and smoothing damps precisely the within-year
+      movement being measured. These amplitudes are therefore conservative: the swing in
+      raw listing prices is probably larger. That is the safe direction for an error to
+      run, but it is still an error, and it is the reason no month is presented as a
+      prediction.
+    </p>
+    <p>
+      A useful sanity check on the method: the counties with the largest swings are
+      Newport County RI, Grand Traverse MI, Pitkin CO and Barnstable MA. Cape Cod, Aspen,
+      and two lake resorts. Markets dominated by one short season are exactly where a
+      seasonal index should light up, and it does.
+    </p>
+  </section>
+
+  <section id="comp">
+    <h2>Compensation</h2>
+    <p>
+      The presets are median reported packages by company and level from Levels.fyi, dated
+      on the page. Base salary and the bonus total come from there directly; the equity
+      grant is its annualised stock figure multiplied by four, which is the grant it was
+      derived from.
+    </p>
+    <p>
+      The <em>shape</em> of each vesting schedule is the company's published one: Google's
+      front-loaded 33/33/22/12, Amazon's back-loaded 5/15/40/40 with sign-on cash bridging
+      the early years, even quarterly vesting elsewhere. Where a company front-loads cash
+      to offset a back-loaded vest, the four-year totals still reconcile to Levels.fyi.
+    </p>
+
+    <h3>"Other", and why it is not in the data file</h3>
+    <p>
+      The <strong>Other</strong> chip is an offer that is nobody's published package. It
+      deliberately does not live in <code>data/profiles.json</code>: every row in that file
+      carries a source and a date, and a number you typed has neither, so mixing the two
+      would quietly weaken the guarantee the rest of the file makes.
+    </p>
+    <p>
+      Choosing it keeps whatever is already in the fields, because adjusting from a real
+      anchor beats retyping four numbers from zero. What it does replace is the vesting
+      shape. A preset's schedule belongs to that company, and once the package is yours
+      there is nothing left to justify assuming it, so the four-year view falls back to
+      even quarters. Typing over a preset's numbers switches you to Other automatically,
+      but <em>keeps</em> the schedule you started from and says so, rather than reshaping
+      the curve underneath you. Either way your offer joins the comparison grid and the
+      vesting panels alongside the sourced ones.
+    </p>
+
+    <h3>The headline uses base salary only</h3>
+    <p>
+      Total comp flatters the number exactly where a relocation decision can least afford
+      it. A sign-on bonus is one lump in January; RSUs vest quarterly at a price nobody
+      can predict. Neither pays next month's rent reliably, so equity and bonuses get
+      their own views rather than being folded silently into the headline.
+    </p>
+
+    <h3>Equity is discounted, not counted at face value</h3>
+    <p>
+      Public-company RSUs take a 15% haircut for price risk between grant and vest.
+      Private company shares default to a <strong>0%</strong> haircut, not because they
+      are worthless, but because you cannot pay rent with illiquid paper.
+    </p>
+
+    <h3 id="location-pay">Pay is not location-adjusted, and that is deliberate</h3>
+    <p>
+      Real packages are location-adjusted: the same level is commonly 15–25% lower in a
+      tier-3 metro than in the Bay Area. This site does <strong>not</strong> model that,
+      which means dragging a Bay Area preset onto a cheap county overstates what you would
+      actually be paid there.
+    </p>
+    <p>
+      It is left unmodelled because no authoritative per-metro table is published. The one
+      credible public source of real filed salaries by employer and worksite, the
+      Department of Labor's H-1B LCA disclosure data, returns HTTP 403 to automated
+      requests. Deriving location factors from secondary aggregators would have meant
+      shipping invented numbers with the same confidence as verified ones. The salary
+      field is editable instead: put your actual offer in it.
+    </p>
+  </section>
+
+  <section id="limits">
+    <h2>Known limitations</h2>
+    <p>
+      These are the things this site gets wrong or cannot see. They are listed here rather
+      than buried because a tool that hides its error bars is worse than no tool.
+    </p>
+
+    <table class="facts wide">
+      <thead><tr><th>Limitation</th><th>Effect</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>Local income tax is modelled for two cities only</strong></td>
+          <td>About a third of counties with data sit in states levying some local income
+              tax. Only New York City and Philadelphia are computed. Affected counties
+              carry an on-screen warning, and their take-home is overstated. Maryland and
+              Indiana tax at county level and would fit this data model, but both
+              authorities publish their schedules as PDFs that could not be read reliably,
+              and Maryland moved two counties to tiered rates for 2026. Everywhere else
+              the tax is municipal rather than county level, and Pennsylvania alone has
+              some 2,500 rates, so no single county figure would be correct.</td>
+        </tr>
+        <tr>
+          <td><strong>State paid-leave payroll levies cover CA and WA only</strong></td>
+          <td>About a dozen other states run employee-funded programmes of roughly
+              0.3–0.7% of wages. Take-home in those states is overstated by about half a
+              percent of gross.</td>
+        </tr>
+        <tr>
+          <td><strong>Single filer, standard deduction</strong></td>
+          <td>No dependents, no 401(k) deferral, no itemising, no spouse. Any of these
+              moves your real number, usually by more than the differences the site is
+              highlighting.</td>
+        </tr>
+        <tr>
+          <td><strong>County-level, not neighbourhood</strong></td>
+          <td>King County covers both downtown Seattle and rural foothills at one rent
+              figure. Within-county variation can exceed between-county variation.</td>
+        </tr>
+        <tr>
+          <td><strong>Connecticut is unshaded</strong></td>
+          <td>Connecticut replaced its counties with planning regions in 2022. Zillow still
+              reports on the old county geography and MIT uses the new one, so the two do
+              not join. Rather than map one onto the other approximately, those eight
+              counties are left without a cost figure.</td>
+        </tr>
+        <tr>
+          <td><strong>The cost baseline is subsistence, not aspiration</strong></td>
+          <td>MIT's budget contains no savings, no holidays and no meals out. That is what
+              makes it the right floor for "survival", and the reason "comfortable" adds
+              50% headroom on top rather than simply being a larger version of the same
+              number.</td>
+        </tr>
+        <tr>
+          <td><strong>Utilities are missing on the Zillow basis</strong></td>
+          <td>ZORI excludes them and MIT's budget puts them in the housing row this project
+              discards, so a ZORI-based total understates the real monthly cost. The Census
+              basis includes them.</td>
+        </tr>
+        <tr>
+          <td><strong>Health insurance is a national-ish average</strong></td>
+          <td>MIT's medical figure does not know what your employer's plan costs you, which
+              at large tech companies is usually well below average.</td>
+        </tr>
+        <tr>
+          <td><strong>Compensation is a snapshot, not a feed</strong></td>
+          <td>Rent refreshes monthly and automatically. The comp presets are dated medians
+              that a human updates.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="reproduce">
+    <h2>Read the source instead</h2>
+    <p>
+      Everything above is a description of code you can go and read. There is no build
+      step and nothing is minified, so the files in the repository are byte for byte the
+      files your browser runs. That makes this page checkable rather than merely
+      believable, and if the two ever disagree, the code is what is true. The model is
+      about 1,700 lines of plain JavaScript in total.
+    </p>
+    <p>
+      The <a href="https://github.com/varad-more/Tech-affordability-index#readme">README</a>
+      has the commands to run it, refresh the data and execute the tests.
+    </p>
+
+    <table class="facts wide">
+      <thead>
+        <tr><th>To check this claim</th><th>Read this</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>The brackets, deductions and payroll rates are the current year's</td>
+          <td><a href="https://github.com/varad-more/Tech-affordability-index/blob/main/src/tax-data.js"><code>src/tax-data.js</code></a><br>
+              Every constant carries the source it came from and the date it was read.</td>
+        </tr>
+        <tr>
+          <td>Marginal tax is walked correctly, and take-home is what is left</td>
+          <td><a href="https://github.com/varad-more/Tech-affordability-index/blob/main/src/tax.js"><code>src/tax.js</code></a></td>
+        </tr>
+        <tr>
+          <td>The three salary thresholds come out of the budgeting rules named above</td>
+          <td><a href="https://github.com/varad-more/Tech-affordability-index/blob/main/src/bands.js"><code>src/bands.js</code></a></td>
+        </tr>
+        <tr>
+          <td>A state's figures are a real county's, never an invented average</td>
+          <td><a href="https://github.com/varad-more/Tech-affordability-index/blob/main/src/state-rollup.js"><code>src/state-rollup.js</code></a></td>
+        </tr>
+        <tr>
+          <td>The seasonal index is a centred moving average with the trend removed</td>
+          <td><a href="https://github.com/varad-more/Tech-affordability-index/blob/main/src/seasonality.js"><code>src/seasonality.js</code></a></td>
+        </tr>
+        <tr>
+          <td>Nothing is filled in when a source goes quiet</td>
+          <td><a href="https://github.com/varad-more/Tech-affordability-index/tree/main/scripts"><code>scripts/</code></a><br>
+              One ingest per source, each of which exits non-zero rather than guessing.</td>
+        </tr>
+        <tr>
+          <td>All of the above stays true</td>
+          <td><a href="https://github.com/varad-more/Tech-affordability-index/tree/main/test"><code>test/</code></a><br>
+              144 assertions over the maths, the ingests and the claims on these pages.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Every ingest fails loudly</h3>
+    <p>
+      If a source is unreachable or its format changes, the script exits non-zero and the
+      last good data stays committed: stale numbers, still labelled with their real date.
+      No script substitutes placeholders, because a pipeline that silently falls back to
+      hardcoded values looks identical to a working one for as long as nobody checks.
+      That is not hypothetical: it is exactly what the version of this project that
+      preceded the rewrite did, for its entire existence.
+    </p>
+
+    <h3>The tests pin the prose, not just the code</h3>
+    <p>
+      The unit suite asserts the factual claims the pages make about the reference offers:
+      that Google's front-loaded grant decays, that Amazon's back-loaded one climbs past
+      it, that the evenly-vesting offers stay flat. If the data is updated so a claim stops
+      holding, the tests fail and flag the wording as stale. A sentence the numbers no
+      longer support is a correctness bug, not a wording nit.
+    </p>
+  </section>
+
+</div>
+
+<footer class="site-footer">
+  <div class="footer-inner">
+
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <p class="footer-mark">Tech Affordability Index</p>
+        <p class="footer-blurb">
+          What a place actually costs, against what you actually keep. Every US county,
+          priced on current rent and current-year tax law rather than on a gross number
+          in a job ad.
+        </p>
+        <p class="footer-freshness" id="footer-freshness"></p>
+      </div>
+
+      <nav class="footer-col" aria-label="Site">
+        <h2>The site</h2>
+        <ul>
+          <li><a href="../">Explore counties</a></li>
+          <li><a href="../states/">By state</a></li>
+          <li><a href="../timing/">When to move</a></li>
+          <li><a href="../method/">Method &amp; limitations</a></li>
+          <li><a href="https://github.com/varad-more/Tech-affordability-index">Source on GitHub</a></li>
+        </ul>
+      </nav>
+
+      <div class="footer-col footer-sources">
+        <h2>Where the numbers come from</h2>
+        <ul>
+          <li>
+            <a href="https://www.zillow.com/research/data/">Zillow ZORI</a>
+            <span>asking rent, monthly</span>
+          </li>
+          <li>
+            <a href="https://www.census.gov/programs-surveys/acs">US Census ACS</a>
+            <span>median gross rent, by unit size</span>
+          </li>
+          <li>
+            <a href="https://livingwage.mit.edu/">MIT Living Wage</a>
+            <span>every cost except rent</span>
+          </li>
+          <li>
+            <a href="https://taxfoundation.org/data/all/state/state-income-tax-rates-2026/">Tax Foundation</a>
+            <span>state income tax</span>
+          </li>
+          <li>
+            <a href="https://www.irs.gov/">IRS</a> and
+            <a href="https://www.ssa.gov/oact/cola/cbb.html">SSA</a>
+            <span>federal brackets, FICA, wage base</span>
+          </li>
+          <li>
+            <a href="https://www.levels.fyi/">Levels.fyi</a>
+            <span>the compensation presets</span>
+          </li>
+          <li>
+            <a href="https://github.com/topojson/us-atlas">us-atlas</a>
+            <span>county boundaries</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer-bar">
+      <p>
+        © 2026 Varad More ·
+        <a href="https://github.com/varad-more/Tech-affordability-index/blob/main/LICENSE">MIT licence</a>
+      </p>
+      <p class="footer-boast">
+        No trackers, no cookies, no analytics, no third-party requests. The typeface
+        and the map ship from this repository.
+      </p>
+    </div>
+
+  </div>
+</footer>
+
+<script type="module" src="../assets/method.js"></script>
+</body>
+</html>

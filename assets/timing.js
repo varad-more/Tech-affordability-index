@@ -15,6 +15,7 @@ import {
 import { countyPicker, indexCounty } from './county-picker.js';
 import { initTheme } from './theme.js';
 import { initFooter } from './footer.js';
+import { dataUrl } from './data.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -30,7 +31,7 @@ const state = {
 };
 
 async function load() {
-  const data = await fetch('data/rent-history.json').then((r) => r.json());
+  const data = await fetch(dataUrl('rent-history.json')).then((r) => r.json());
 
   state.data = data;
   // `state` is the postal code everywhere else on the site; the history file
@@ -275,7 +276,10 @@ function renderLeaderboard() {
   }));
 
   // County labels are far longer than the metro names this chart usually holds.
-  rankedBarChart($('#leaderboard'), rows, { gutter: 190 });
+  rankedBarChart($('#leaderboard'), rows, {
+    gutter: 190,
+    label: 'Peak-to-trough seasonal swing in rent, by county, largest last',
+  });
 }
 
 function renderAll() {

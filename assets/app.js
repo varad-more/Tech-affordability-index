@@ -13,6 +13,7 @@ import { countyMap, rampLegendFor, BAND_STEP } from './map.js';
 import { countyPicker, indexCounty } from './county-picker.js';
 import { initTheme } from './theme.js';
 import { initFooter } from './footer.js';
+import { dataUrl } from './data.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -102,12 +103,12 @@ const state = {
 
 async function load() {
   const [rents, profiles, countyZori, countyAcs, countyWage, basemap] = await Promise.all([
-    fetch('data/rents.json').then((r) => r.json()),
-    fetch('data/profiles.json').then((r) => r.json()),
-    fetch('data/county-rents.json').then((r) => r.json()),
-    fetch('data/county-acs-rents.json').then((r) => r.json()),
-    fetch('data/county-living-wage.json').then((r) => r.json()),
-    fetch('data/us-basemap.json').then((r) => r.json()),
+    fetch(dataUrl('rents.json')).then((r) => r.json()),
+    fetch(dataUrl('profiles.json')).then((r) => r.json()),
+    fetch(dataUrl('county-rents.json')).then((r) => r.json()),
+    fetch(dataUrl('county-acs-rents.json')).then((r) => r.json()),
+    fetch(dataUrl('county-living-wage.json')).then((r) => r.json()),
+    fetch(dataUrl('us-basemap.json')).then((r) => r.json()),
   ]);
 
   state.rents = rents;

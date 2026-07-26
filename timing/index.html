@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>When to move · Tech Affordability Index</title>
+  <meta name="description" content="How rent moves through the calendar year in any US county, and what timing a lease is actually worth.">
+  <link rel="stylesheet" href="../assets/styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>🏙️</text></svg>">
+</head>
+<body>
+
+<a class="skip-link" href="#content">Skip to content</a>
+
+<nav class="topnav">
+  <div class="topnav-inner">
+    <a class="brand" href="../">Tech&nbsp;Affordability&nbsp;Index</a>
+    <div class="topnav-links">
+      <a href="../">Explore</a>
+      <a href="../states/">By state</a>
+      <a href="../timing/" aria-current="page">When to move</a>
+      <a href="../method/">Method</a>
+      <a href="https://github.com/varad-more/Tech-affordability-index">Source</a>
+      <button id="theme-toggle" type="button">Dark</button>
+    </div>
+  </div>
+</nav>
+
+<div class="wrap" id="content">
+
+  <header class="hero">
+    <p class="eyebrow">Timing</p>
+    <h1>When is a lease<br>cheapest to sign?</h1>
+    <p class="tagline">
+      Rent is not flat across the year. Summer is moving season, so demand and asking
+      rents peak; winter is when landlords have empty units and less leverage. This
+      measures how large that swing actually is where you are looking, and whether it is
+      big enough to be worth planning around.
+    </p>
+    <div class="freshness" id="freshness"></div>
+  </header>
+
+  <div id="loading" class="loading">
+    <span class="spinner" aria-hidden="true"></span> Loading rent history…
+  </div>
+
+  <main id="app" hidden>
+
+  <section class="panel">
+    <div class="picker-row picker-row-two">
+      <div class="field">
+        <label for="state-picker">State</label>
+        <div class="select-wrap">
+          <select id="state-picker"></select>
+        </div>
+        <div class="hint" id="state-hint"></div>
+      </div>
+
+      <div class="field field-county">
+        <label for="county-picker">County</label>
+        <div class="combo">
+          <input id="county-picker" type="text" role="combobox"
+                 aria-expanded="false" aria-controls="county-listbox"
+                 aria-autocomplete="list" aria-haspopup="listbox"
+                 autocomplete="off" autocapitalize="off" autocorrect="off"
+                 spellcheck="false" placeholder="Search counties…">
+          <button type="button" id="county-toggle" class="combo-toggle"
+                  tabindex="-1" aria-label="Show the county list"></button>
+          <ul id="county-listbox" class="combo-list" role="listbox"
+              aria-label="Counties" hidden></ul>
+        </div>
+        <div class="hint" id="county-hint"></div>
+        <p id="county-status" class="sr-only" role="status" aria-live="polite"></p>
+      </div>
+    </div>
+
+    <div class="verdict" id="verdict"></div>
+    <div class="stats" id="timing-stats"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Rent through the calendar year</h2>
+    <p class="sub">
+      How much each month costs relative to that year's own average, after the long-term
+      trend is removed. Bars below the line are months when rent runs cheaper than the
+      year's average; bars above it are the expensive months.
+    </p>
+
+    <div class="chart-scroll"><div id="seasonal"></div></div>
+    <p class="sub" id="seasonal-caption" style="margin-top:8px"></p>
+
+    <details class="table-view">
+      <summary>View as table</summary>
+      <div class="chart-scroll"><table id="seasonal-table"></table></div>
+    </details>
+  </section>
+
+  <section class="panel">
+    <h2>The last six years</h2>
+    <p class="sub">
+      Actual monthly rent, not seasonally adjusted. The seasonal wiggle above rides on
+      top of this trend, and in most places the trend is much larger than the wiggle.
+      That is the honest headline of this page.
+    </p>
+    <div class="chart-scroll"><div id="history"></div></div>
+    <p class="sub" id="history-caption" style="margin-top:8px"></p>
+  </section>
+
+  <section class="panel">
+    <h2>Where timing matters most</h2>
+    <p class="sub">
+      Counties with the largest swing between their cheapest and dearest month. A big
+      swing usually means a market dominated by one moving season: a university town, or
+      somewhere with a short summer.
+    </p>
+    <div class="chart-scroll"><div id="leaderboard"></div></div>
+  </section>
+
+  <footer class="notes">
+    <h2>How to read this, and how not to</h2>
+    <ul>
+      <li>
+        <strong>The swing is real but modest.</strong> Across the counties with a usable
+        pattern the median peak-to-trough swing is about 2%. On a $2,000 rent that is
+        roughly $40 a month. It is worth knowing; it is not worth taking a worse job for.
+      </li>
+      <li>
+        <strong>Where you move dwarfs when.</strong> The gap between the cheapest and
+        dearest counties on this site is a factor of several. The gap between the cheapest
+        and dearest month within one county is a couple of percent. Get the place right
+        first.
+      </li>
+      <li>
+        <strong>These are historical averages, not a forecast.</strong> The index says
+        what January has typically done relative to its year, over the past decade. It
+        does not know about next year's supply, rates, or a new employer arriving.
+      </li>
+      <li>
+        <strong>ZORI is smoothed, which damps seasonality.</strong> The real swing in
+        listing prices is probably somewhat larger than what is shown here. That makes
+        these figures conservative rather than overstated.
+      </li>
+      <li>
+        <strong>Counties with too little history are excluded</strong> rather than shown
+        with a shaky pattern. A calendar month needs at least three observations before it
+        enters the average.
+      </li>
+      <li>
+        <strong>Asking rent, not your renewal.</strong> This tracks what is being listed.
+        It says nothing about what a landlord will do to an existing tenant's rent.
+      </li>
+      <li>
+        <a href="../method/"><strong>Full method →</strong></a>
+      </li>
+    </ul>
+  </footer>
+
+</div>
+
+<footer class="site-footer">
+  <div class="footer-inner">
+
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <p class="footer-mark">Tech Affordability Index</p>
+        <p class="footer-blurb">
+          What a place actually costs, against what you actually keep. Every US county,
+          priced on current rent and current-year tax law rather than on a gross number
+          in a job ad.
+        </p>
+        <p class="footer-freshness" id="footer-freshness"></p>
+      </div>
+
+      <nav class="footer-col" aria-label="Site">
+        <h2>The site</h2>
+        <ul>
+          <li><a href="../">Explore counties</a></li>
+          <li><a href="../states/">By state</a></li>
+          <li><a href="../timing/">When to move</a></li>
+          <li><a href="../method/">Method &amp; limitations</a></li>
+          <li><a href="https://github.com/varad-more/Tech-affordability-index">Source on GitHub</a></li>
+        </ul>
+      </nav>
+
+      <div class="footer-col footer-sources">
+        <h2>Where the numbers come from</h2>
+        <ul>
+          <li>
+            <a href="https://www.zillow.com/research/data/">Zillow ZORI</a>
+            <span>asking rent, monthly</span>
+          </li>
+          <li>
+            <a href="https://www.census.gov/programs-surveys/acs">US Census ACS</a>
+            <span>median gross rent, by unit size</span>
+          </li>
+          <li>
+            <a href="https://livingwage.mit.edu/">MIT Living Wage</a>
+            <span>every cost except rent</span>
+          </li>
+          <li>
+            <a href="https://taxfoundation.org/data/all/state/state-income-tax-rates-2026/">Tax Foundation</a>
+            <span>state income tax</span>
+          </li>
+          <li>
+            <a href="https://www.irs.gov/">IRS</a> and
+            <a href="https://www.ssa.gov/oact/cola/cbb.html">SSA</a>
+            <span>federal brackets, FICA, wage base</span>
+          </li>
+          <li>
+            <a href="https://www.levels.fyi/">Levels.fyi</a>
+            <span>the compensation presets</span>
+          </li>
+          <li>
+            <a href="https://github.com/topojson/us-atlas">us-atlas</a>
+            <span>county boundaries</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="footer-bar">
+      <p>
+        © 2026 Varad More ·
+        <a href="https://github.com/varad-more/Tech-affordability-index/blob/main/LICENSE">MIT licence</a>
+      </p>
+      <p class="footer-boast">
+        No trackers, no cookies, no analytics, no third-party requests. The typeface
+        and the map ship from this repository.
+      </p>
+    </div>
+
+  </div>
+</footer>
+
+<script type="module" src="../assets/timing.js"></script>
+</body>
+</html>

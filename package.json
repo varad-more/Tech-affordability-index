@@ -12,12 +12,14 @@
     "fetch-rents": "node scripts/fetch-rents.mjs",
     "fetch-county-rents": "node scripts/fetch-county-rents.mjs",
     "fetch-acs-rents": "node scripts/fetch-acs-rents.mjs",
-    "fetch-living-wage": "node scripts/fetch-living-wage.mjs",
     "fetch-county-living-wage": "node scripts/fetch-county-living-wage.mjs",
     "build-basemap": "node scripts/build-basemap.mjs",
     "build-rent-history": "node scripts/build-rent-history.mjs",
-    "refresh": "npm run fetch-rents && npm run fetch-county-rents && npm run fetch-acs-rents && npm run build-rent-history",
+    "refresh": "npm run fetch-rents && npm run fetch-county-rents && npm run build-rent-history",
     "previews": "node scripts/render-previews.mjs"
+  },
+  "engines": {
+    "node": ">=22"
   },
   "license": "MIT",
   "devDependencies": {

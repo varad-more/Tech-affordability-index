@@ -7,6 +7,8 @@
  * it from cache on the two pages that have already fetched it — and falls back
  * to the cadence, which stays true whether or not the fetch succeeds.
  */
+import { dataUrl } from './data.js';
+
 export async function initFooter() {
   const node = document.getElementById('footer-freshness');
   if (!node) return;
@@ -14,7 +16,7 @@ export async function initFooter() {
   const cadence = 'Checked weekly against Zillow.';
 
   try {
-    const rents = await fetch('data/rents.json').then((r) => r.json());
+    const rents = await fetch(dataUrl('rents.json')).then((r) => r.json());
     const month = new Date(`${rents.asOf}T00:00:00Z`).toLocaleDateString('en-US', {
       month: 'long',
       year: 'numeric',

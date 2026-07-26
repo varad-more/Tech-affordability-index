@@ -508,7 +508,7 @@ function barPath(x, y, w, h, r) {
  * long-named categories. Bar length carries the value, so the fill stays a
  * single hue rather than redundantly re-encoding it.
  */
-export function rankedBarChart(mount, rows, { threshold, thresholdLabel, gutter } = {}) {
+export function rankedBarChart(mount, rows, { threshold, thresholdLabel, gutter, label } = {}) {
   clearMount(mount);
 
   const W = frameWidth(mount);
@@ -530,7 +530,11 @@ export function rankedBarChart(mount, rows, { threshold, thresholdLabel, gutter 
     width: W,
     height: H,
     role: 'img',
-    'aria-label': 'Share of monthly take-home pay spent on rent, by metro, ranked lowest to highest',
+    // Three pages draw this chart from three different quantities, so the name
+    // has to come from the caller. It said "rent, by metro" everywhere,
+    // including on the seasonal leaderboard, where that was simply false.
+    'aria-label':
+      label ?? 'Share of monthly take-home pay spent on rent, by metro, ranked lowest to highest',
   });
 
   // Gridlines behind the marks, at a step chosen from the range rather than
@@ -629,15 +633,40 @@ function inkFor(step) {
 }
 
 /**
- * Heatmap — the named form for magnitude across a grid. Color is the ONLY
+ * Heatmap: the named form for magnitude across a grid. Color is the ONLY
  * encoding here, so the ramp is sequential and every cell prints its value
  * (the relief rule for ramp steps that sit under 3:1 against the surface).
+ *
+ * @param {object} opts
+ * @param {string[]} opts.rowLabels
+ * @param {Array} opts.colLabels   {title, subtitle}
+ * @param {Array} opts.cells       [row][col] => {value, tooltip}
+ * @param {Function} [opts.format] how a cell prints its own value
+ * @param {'grid'|'column'} [opts.scale]
+ * @param {number} [opts.gutter]   width reserved for row labels
+ * @param {number} [opts.rowHeight]
+ * @param {string} [opts.label]    accessible name for the whole grid
+ * @param {boolean} [opts.focusable] whether each cell is its own tab stop
  */
-export function heatmap(mount, { rowLabels, colLabels, cells }) {
+export function heatmap(mount, { rowLabels, colLabels, cells, ...opts }) {
   clearMount(mount);
 
-  const gutterL = 116;
-  const cellH = 26;
+  const format = opts.format ?? ((v) => pct(v, 1));
+  /**
+   * `column` shades each column against its own range.
+   *
+   * A grid whose columns are different quantities has no shared scale to shade
+   * against: rent near $1,800 beside a $95 phone bill puts every non-rent column
+   * on the palest step, and the map reads as one dark stripe and six blanks. Per
+   * column, the colour answers "high or low *for this line of the budget*",
+   * which is the comparison the grid is arranged to support. The cells still
+   * print absolute values, so nothing about the magnitude is hidden.
+   */
+  const perColumn = opts.scale === 'column';
+  const focusable = opts.focusable ?? true;
+
+  const gutterL = opts.gutter ?? 116;
+  const cellH = opts.rowHeight ?? 26;
   const gap = 2;
   const top = 40;
 
@@ -660,9 +689,15 @@ export function heatmap(mount, { rowLabels, colLabels, cells }) {
   const W = gutterL + colLabels.length * (cellW + gap);
   const H = top + rowLabels.length * (cellH + gap) + 8;
 
-  const flat = cells.flat().filter((c) => c?.value !== null && c?.value !== undefined).map((c) => c.value);
-  const min = Math.min(...flat);
-  const max = Math.max(...flat);
+  const real = (list) =>
+    list.filter((c) => c?.value !== null && c?.value !== undefined).map((c) => c.value);
+
+  // One domain for the whole grid, or one per column. Either way it is an array
+  // indexed by column, so the cell loop below reads the same in both cases.
+  const domains = colLabels.map((_, c) => {
+    const values = real(perColumn ? cells.map((row) => row[c]) : cells.flat());
+    return { min: Math.min(...values), max: Math.max(...values) };
+  });
 
   const svg = el('svg', {
     viewBox: `0 0 ${W} ${H}`,
@@ -670,7 +705,7 @@ export function heatmap(mount, { rowLabels, colLabels, cells }) {
     height: H,
     class: 'chart-wide',
     role: 'img',
-    'aria-label': 'Share of take-home pay spent on rent, by metro and offer',
+    'aria-label': opts.label ?? 'Share of take-home pay spent on rent, by metro and offer',
   });
 
   colLabels.forEach((label, c) => {
@@ -692,10 +727,17 @@ export function heatmap(mount, { rowLabels, colLabels, cells }) {
     colLabels.forEach((_, c) => {
       const cell = cells[r][c];
       const x = gutterL + c * (cellW + gap);
-      const g = el('g', { tabindex: '0' });
+      // A grid of 400 cells is 400 tab stops between one section and the next.
+      // Where the row label, the column header and the printed value already say
+      // everything the tooltip would, the cells are not focusable and the
+      // tooltip is left as mouse enrichment rather than as the only route to a
+      // fact. Callers whose tooltips carry something extra opt back in.
+      const g = el('g', focusable ? { tabindex: '0' } : {});
 
       const step =
-        cell.value === null || cell.value === undefined ? null : rampStep(cell.value, min, max);
+        cell.value === null || cell.value === undefined
+          ? null
+          : rampStep(cell.value, domains[c].min, domains[c].max);
 
       g.appendChild(
         el('rect', { x, y, width: cellW, height: cellH, rx: 3, fill: rampColor(step) }),
@@ -710,7 +752,7 @@ export function heatmap(mount, { rowLabels, colLabels, cells }) {
               class: 'cell-value', 'text-anchor': 'middle',
               fill: inkFor(step),
             },
-            pct(cell.value, 1),
+            format(cell.value),
           ),
         );
       }
