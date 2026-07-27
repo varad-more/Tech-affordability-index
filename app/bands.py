@@ -33,9 +33,9 @@ and the Additional Medicare threshold, which have no closed form.
 """
 
 import math
-from functools import lru_cache
 from typing import NamedTuple, Optional, Tuple
 
+from .net_curve import invert, net_curve
 from .tax import TaxBreakdown, total_tax
 
 
@@ -155,54 +155,35 @@ def monthly_needs(rent: float, non_housing_monthly: float) -> float:
     return rent + non_housing_monthly
 
 
-@lru_cache(maxsize=8192)
 def gross_for_net(
     target_annual_net: Optional[float], state: str, local: Optional[str] = None
 ) -> Optional[float]:
     """Smallest gross salary whose take-home pay reaches ``target_annual_net``.
 
-    Bisection, not algebra: take-home is piecewise-linear in gross with kinks at
-    every bracket edge, the Social Security wage cap and the Additional Medicare
-    threshold. It is, however, strictly increasing, which is all bisection needs
-    — and it means one implementation covers every jurisdiction the engine knows.
+    Take-home is piecewise linear in gross, with kinks at every bracket edge, the
+    Social Security wage base and the Additional Medicare threshold — and those
+    kinks are known constants rather than something to be found numerically. So
+    this is the closed-form inverse of that function: one binary search over a
+    couple of dozen knots, then a single interpolation.
 
-    Returns None when the target is unreachable.
+    This used to bisect the tax engine itself, roughly sixty evaluations per
+    call, stopping once the interval was under a cent. That was correct to the
+    cent and slow enough to need an 8,192-entry cache in front of it, because the
+    By-state page solves one per county — 254 of them for Texas.
 
-    Cached because it is the most expensive thing in the codebase — roughly
-    sixty tax computations per call — and the By-state page runs one per county,
-    254 of them for Texas. The arguments are a float and two short strings, and
-    the result depends on nothing else, so the cache is exact rather than
-    approximate.
+    The exact answer is not merely faster. The browser has to solve the same
+    ladder against the same published curve, and two bisections tuned to
+    different tolerances would disagree in the pennies while both looked right.
+    An exact inverse on both sides agrees to the last bit, which is a property
+    that can actually be tested.
+
+    Returns None only if take-home stops increasing with gross, which would mean
+    a marginal rate at or above 100%.
     """
     if target_annual_net is None or not (target_annual_net > 0):
         return 0.0
 
-    def net_of(gross: float) -> float:
-        return total_tax(gross, state, local).net
-
-    # Grow the upper bound until it brackets the target. Marginal rates stay
-    # below 100%, so this terminates; the cap guards against a malformed bracket
-    # table rather than an expected path.
-    hi = max(target_annual_net * 1.5, 10_000.0)
-    attempts = 0
-    while net_of(hi) < target_annual_net:
-        if attempts > 40:
-            return None
-        hi *= 2
-        attempts += 1
-
-    lo = 0.0
-    # ~60 halvings takes a $10M interval well below a cent; the loop bound is a
-    # belt-and-braces stop, and the width test is what actually ends it.
-    for _ in range(200):
-        if hi - lo <= 0.01:
-            break
-        mid = (lo + hi) / 2
-        if net_of(mid) < target_annual_net:
-            lo = mid
-        else:
-            hi = mid
-    return hi
+    return invert(net_curve(state, local), target_annual_net)
 
 
 def salary_bands(

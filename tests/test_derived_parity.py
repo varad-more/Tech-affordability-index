@@ -23,6 +23,7 @@ import pytest
 from app.bands import assess, gross_for_net, needs_share_step, salary_bands
 from app.seasonality import centred_trend, seasonal_index, seasonal_saving
 from app.state_rollup import roll_up_states
+from app.tax import total_tax
 
 FIXTURE = json.loads(
     (Path(__file__).parent / "fixtures" / "derived-parity.json").read_text(encoding="utf-8")
@@ -35,23 +36,47 @@ def test_the_fixture_covers_what_it_claims():
     assert len(FIXTURE["rollups"]) == 51
 
 
+#: How far a rung of the ladder may sit below the JavaScript's answer.
+#:
+#: The original bisected the tax engine and stopped once its bracketing interval
+#: was narrower than a cent, returning the interval's upper bound. So its answer
+#: was always the true root or up to a cent above it, never below.
+#:
+#: :func:`app.bands.gross_for_net` now solves the published tax curve in closed
+#: form and returns the root itself. The two therefore differ by design, in one
+#: direction, by less than a cent — and asserting exactly that is a stronger
+#: statement than approximate equality, which would also have passed had the new
+#: answer drifted the wrong way or landed on the wrong side.
+BISECTION_TOLERANCE = 0.01
+
+
 def test_salary_ladders_match():
     mismatches = []
     for case in FIXTURE["bandCases"]:
         got = salary_bands(
             case["rent"], case["nonHousingMonthly"], case["state"], case["local"]
         )
+
+        # Not solved for, just added up: this one stays exact.
+        if got.monthly_needs != case["monthlyNeeds"]:
+            mismatches.append(
+                "{} rent={} nh={}: monthlyNeeds want {!r} got {!r}".format(
+                    case["state"], case["rent"], case["nonHousingMonthly"],
+                    case["monthlyNeeds"], got.monthly_needs,
+                )
+            )
+
         for key, mine in (
-            ("monthlyNeeds", got.monthly_needs),
             ("survival", got.survival),
             ("gettingBy", got.getting_by),
             ("comfortable", got.comfortable),
         ):
-            if mine != case[key]:
+            drift = case[key] - mine
+            if not 0 <= drift <= BISECTION_TOLERANCE:
                 mismatches.append(
-                    "{} rent={} nh={}: {} want {!r} got {!r}".format(
+                    "{} rent={} nh={}: {} want {!r} got {!r} (drift {:+.6f})".format(
                         case["state"], case["rent"], case["nonHousingMonthly"],
-                        key, case[key], mine,
+                        key, case[key], mine, drift,
                     )
                 )
     assert not mismatches, "\n  ".join(mismatches[:20])
@@ -68,10 +93,26 @@ def test_assessments_match():
         assert got.band.id == case["assessBandId"]
 
 
-def test_the_bisection_lands_on_the_same_cent():
+def test_the_closed_form_lands_where_the_bisection_was_converging():
+    """The inverse agrees with the JavaScript, and is the tighter of the two.
+
+    Checked in both directions rather than as a tolerance: the drift must be
+    non-negative (the bisection could only overshoot upward) and under a cent
+    (its stopping rule). On top of that the new answer is fed back through the
+    tax engine, which the old one could not satisfy — it was never the exact
+    root, only within a cent of it.
+    """
     for case in FIXTURE["grossForNetCases"]:
         got = gross_for_net(case["target"], case["state"])
-        assert got == case["gross"], "{} target {}".format(case["state"], case["target"])
+        drift = case["gross"] - got
+
+        assert 0 <= drift <= BISECTION_TOLERANCE, "{} target {}: drift {:+.6f}".format(
+            case["state"], case["target"], drift
+        )
+        if case["target"] > 0:
+            assert total_tax(got, case["state"]).net == pytest.approx(
+                case["target"], abs=1e-6
+            )
 
 
 def test_needs_share_step_agrees_at_every_break():

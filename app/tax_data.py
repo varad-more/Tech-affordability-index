@@ -44,9 +44,16 @@ class Locality(NamedTuple):
 
     'base' is 'state_taxable' when the tax applies to income after the state's
     own deduction, or 'gross' when it applies to gross wages with none.
+
+    'state' is the state the city sits in. It is carried here rather than
+    inferred, because a 'state_taxable' city tax is assessed after that state's
+    standard deduction — so anything building the tax curve has to know which
+    state's deduction applies, and guessing it from the city code is a mapping
+    that silently rots the moment a third city is added.
     """
 
     name: str
+    state: str
     base: str
     brackets: Tuple[Bracket, ...]
     source: str
@@ -701,6 +708,7 @@ UNMODELLED_LOCAL_TAX: Dict[str, Dict[str, str]] = {
 LOCAL: Dict[str, Locality] = {
     "NYC": Locality(
         name="New York City resident income tax",
+        state="NY",
         base="state_taxable",
         brackets=(
             Bracket(0, 0.03078),
@@ -712,6 +720,7 @@ LOCAL: Dict[str, Locality] = {
     ),
     "PHL": Locality(
         name="Philadelphia resident wage tax",
+        state="PA",
         base="gross",
         brackets=(
             Bracket(0, 0.03735),

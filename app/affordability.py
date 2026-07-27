@@ -14,7 +14,7 @@ camelCase — they are external data being read, not Python being written.
 import math
 from typing import Any, Dict, List, NamedTuple, Optional, Sequence
 
-from .tax import TaxBreakdown, total_tax
+from .net_curve import Liability, liability
 
 #: HUD's long-standing definition of "cost-burdened": more than 30% of income
 #: spent on housing. Anchors the charts with a real threshold, not an arbitrary
@@ -26,7 +26,7 @@ SEVERELY_COST_BURDENED_THRESHOLD = 0.50
 class YearResult(NamedTuple):
     year: int
     gross: float
-    tax: TaxBreakdown
+    tax: Liability
     monthly_net: float
     ratio: Optional[float]
 
@@ -38,7 +38,7 @@ class Affordability(NamedTuple):
     #: Headline: rent against take-home from base salary alone.
     base_ratio: Optional[float]
     base_monthly_net: float
-    base_tax: TaxBreakdown
+    base_tax: Liability
     #: The same ratio once equity and bonuses are counted, year by year.
     years: List[YearResult]
     total_ratio_y1: Optional[float]
@@ -67,8 +67,17 @@ def _ratio(monthly_rent: float, monthly_net: float) -> Optional[float]:
 def affordability(
     profile: Dict[str, Any], rent: float, state: str, local: Optional[str] = None
 ) -> Affordability:
-    """Affordability for one compensation profile in one location."""
-    base_tax = total_tax(profile["baseSalary"], state, local)
+    """Affordability for one compensation profile in one location.
+
+    Tax comes from :func:`app.net_curve.liability` rather than
+    :func:`app.tax.total_tax`, and the distinction matters even though the two
+    agree to within float noise. This function is the specification the browser's
+    ranking is tested against, and the browser can only evaluate the published
+    curve. Comparing a curve against an engine would force a tolerance into that
+    test; comparing curve against curve keeps it exact, and
+    ``tests/test_net_curve.py`` separately pins the curve to the engine.
+    """
+    base_tax = liability(profile["baseSalary"], state, local)
     base_monthly_net = base_tax.net / 12
 
     year_count = max(
@@ -78,7 +87,7 @@ def affordability(
     years = []
     for y in range(year_count):
         gross = gross_for_year(profile, y)
-        tax = total_tax(gross, state, local)
+        tax = liability(gross, state, local)
         monthly_net = tax.net / 12
         years.append(
             YearResult(
