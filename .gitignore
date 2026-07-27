@@ -7,3 +7,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 dist/
+
+# Working notes, kept locally. Not documentation — the README and the
+# commit messages carry anything worth publishing.
+tasks/
