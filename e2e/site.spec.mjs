@@ -1214,11 +1214,13 @@ test.describe('affordability index', () => {
     // Constants quoted in prose must match the engine they claim to describe.
     // The method page has gone stale on exactly this kind of number before.
     //
-    // Fetched rather than imported: the engine is Python now, so the only way
-    // to check the page against the real constants — rather than against a
-    // JavaScript copy of them that could itself drift — is to ask the server.
+    // Fetched rather than imported: the engine is Python, so the only way to
+    // check the page against the real constants — rather than against a
+    // JavaScript copy of them that could itself drift — is to read what Python
+    // published. That is a flat file now instead of an endpoint, but it is
+    // still generated from app/tax_data.py on every build.
     const { federal: FEDERAL, fica: FICA } =
-      await page.request.get('/api/meta').then((r) => r.json());
+      await page.request.get('/bundle/meta.json').then((r) => r.json());
 
     const body = await page.locator('#math').innerText();
     for (const value of [
@@ -1238,17 +1240,18 @@ test.describe('affordability index', () => {
 
   test('pages are served from clean URLs, and only from clean URLs', async ({ page }) => {
     // A directory index means /timing/ is the real page. Without the trailing
-    // slash the server has to redirect, or every relative link on the page
+    // slash the host has to redirect, or every relative link on the page
     // resolves one level too high and the whole page 404s its own assets.
-    // 308, not 301: Flask issues a permanent redirect that preserves the method,
-    // where the old static server hand-rolled a 301. Both are permanent and both
-    // are correct; the assertion names the one the application actually sends.
+    //
+    // 301, which is what GitHub Pages sends. This asserted 308 while the site
+    // ran on Flask, because that is what Flask sends. Both are permanent
+    // redirects and both are correct; the number is a property of the host, so
+    // the assertion tracks whatever actually serves the site.
     for (const dir of ['states', 'timing', 'method']) {
       const bare = await page.request.get(`/${dir}`, { maxRedirects: 0 });
-      expect(bare.status(), `/${dir} should redirect to /${dir}/`).toBe(308);
-      // Flask sends an absolute Location; the old static server sent a relative
-      // one. Both are legal, so this asserts the destination rather than the
-      // spelling of it.
+      expect(bare.status(), `/${dir} should redirect to /${dir}/`).toBe(301);
+      // Asserted as a destination rather than a spelling: a relative and an
+      // absolute Location are both legal, and hosts differ on which they send.
       expect(new URL(bare.headers().location, 'http://localhost').pathname).toBe(`/${dir}/`);
     }
 
@@ -1428,16 +1431,20 @@ test.describe('affordability index', () => {
     // These tags are the one part of the site a browser test cannot catch by
     // rendering: a canonical left pointing at a domain the site no longer
     // occupies looks perfect on screen and quietly tells search engines the
-    // page is a duplicate of something that no longer exists. So the assertion
-    // reads CNAME — the file that actually decides where the site lives — and
-    // requires the head tags to agree with it.
-    // The origin comes from the application rather than from a file beside it.
-    // It used to be read from CNAME, which was a GitHub Pages artefact; the
-    // deploy target owns its own hostname now, and /api/meta is the one place
-    // that knows what it is.
-    const origin = (await page.request.get('/api/meta').then((r) => r.json())).siteOrigin;
-    expect(origin, 'the app must advertise an origin').toMatch(/^https:\/\/[a-z0-9.-]+$/);
+    // page is a duplicate of something that no longer exists.
+    //
+    // Two independent things decide where this site lives, and they have to
+    // agree: the origin the build bakes into the head tags, and CNAME, which is
+    // how a repository claims a custom domain from GitHub Pages. Deleting CNAME
+    // is what took the site down — the subdomain resolved to GitHub, no
+    // repository claimed it, and GitHub answered 404. So both are asserted, and
+    // asserted against each other.
+    const origin = (await page.request.get('/bundle/meta.json').then((r) => r.json())).siteOrigin;
+    expect(origin, 'the build must advertise an origin').toMatch(/^https:\/\/[a-z0-9.-]+$/);
     const host = origin.replace(/^https:\/\//, '');
+
+    const cname = await page.request.get('/CNAME').then((r) => r.text());
+    expect(cname.trim(), 'CNAME must claim the same host the head tags name').toBe(host);
 
     const pages = [
       ['/', ''],

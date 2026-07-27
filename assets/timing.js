@@ -136,8 +136,9 @@ async function refreshSaving() {
     saving = { monthly: 0, annual: 0 };
     return;
   }
-  const latest = [...county.history].reverse().find((v) => v !== null);
-  const res = await engine.timing(state.selected, latest).catch(() => null);
+  // The saving is priced against the county's own latest observation, which the
+  // engine already knows — it is precomputed per county rather than solved here.
+  const res = await engine.timing(state.selected).catch(() => null);
   saving = res?.saving ?? { monthly: 0, annual: 0 };
 }
 

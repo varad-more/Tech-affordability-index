@@ -1,73 +1,348 @@
 /**
  * The computation engine, as seen from the browser.
  *
- * Every figure on this site is now computed in Python and fetched. That is the
- * whole point of the Flask migration, but it creates a problem this module
- * exists to solve: the pages render and hover synchronously, and the network is
- * not synchronous.
+ * The site is published as static files, so no server computes anything while
+ * someone is reading. That would normally mean reimplementing the tax engine
+ * here — fifty states of bracket tables in a second language, drifting from the
+ * first — which is precisely what the Python port existed to avoid.
  *
- * The answer is that nothing here computes on demand. `refresh()` pulls the
- * entire page state for one salary and one rent basis in a single response, and
- * every accessor below reads that snapshot out of memory. Painting 3,142
- * counties and hovering one are both instant, exactly as they were; only moving
- * the salary or switching the basis touches the network.
+ * It is avoidable because of a property the tax code happens to have: every
+ * component of the liability is *piecewise linear* in gross wages, and every
+ * kink is a known constant. So Python publishes the curves as knot points (see
+ * `app/net_curve.py`), and this module evaluates them by linear interpolation.
+ * That is exact, not an approximation — between two adjacent knots the function
+ * genuinely is a straight line.
  *
- * What is deliberately NOT here: any arithmetic on tax, bands or class breaks.
- * A `needsShareStep` reimplemented in JavaScript "just for the map" is how a map
- * and a verdict start disagreeing, and it would put the model back in two
- * languages — the exact thing the migration removed.
+ * What that buys, concretely:
+ *
+ *   - No bracket, rate, deduction or threshold exists in JavaScript. Roll the
+ *     tax year in `app/tax_data.py` and this file does not change.
+ *   - Any salary works, not a rounded grid of them. A snapshot per salary would
+ *     have meant either snapping input to $1,000 steps or shipping hundreds of
+ *     megabytes.
+ *   - Moving the salary costs no network at all. Under the API it cost 178 KB.
+ *
+ * What this file DOES hold is arithmetic with no judgement in it: interpolate,
+ * divide, and compare against thresholds Python published. Every constant those
+ * comparisons use — the class breaks, the band ceilings, the burden thresholds —
+ * arrives in `META`. Where a threshold appears below it is read, never typed.
+ *
+ * `tests/test_derivation_parity.py` generates the expected answers from Python
+ * and the browser suite asserts this module reproduces them, so the agreement
+ * is demonstrated rather than reviewed.
  */
+
+const bundleUrl = (name) => new URL(`../bundle/${name}.json`, import.meta.url);
+const dataUrl = (name) => new URL(`../data/${name}`, import.meta.url);
 
 /** Populated by `boot()`. Reading these before it resolves is a bug. */
 export let META = null;
 
+let places = null;
 let snapshot = null;
 let inFlight = null;
 
-const json = async (url) => {
-  const res = await fetch(url);
-  if (!res.ok) {
-    const detail = await res.json().catch(() => ({}));
-    throw new Error(detail.error ?? `${url} returned ${res.status}`);
+/**
+ * Fetch and parse once per URL.
+ *
+ * Several of these files are also fetched by the page modules, and a couple are
+ * megabyte-scale. Memoising on the URL keeps a second caller from re-parsing
+ * what is already in memory, and collapses concurrent callers onto one request.
+ */
+const cache = new Map();
+function json(url) {
+  const key = String(url);
+  if (!cache.has(key)) {
+    cache.set(
+      key,
+      fetch(url).then((res) => {
+        if (!res.ok) throw new Error(`${key} returned ${res.status}`);
+        return res.json();
+      }),
+    );
   }
-  return res.json();
-};
+  return cache.get(key);
+}
+
+// --- curve evaluation ----------------------------------------------------
+//
+// These two mirror `interpolate` and `invert` in app/net_curve.py step for step,
+// including the order of the arithmetic. Floating-point addition is not
+// associative, so "the same formula" written in a different order agrees to the
+// cent and disagrees in the last bit — and the last bit is what the parity tests
+// check. Change one side, change the other.
+
+/** Evaluate a published curve at any wage. */
+function interpolate(curve, gross) {
+  const { knots, values } = curve;
+  if (gross <= knots[0]) return values[0];
+
+  let lo = 0;
+  let hi = knots.length - 1;
+  if (gross >= knots[hi]) {
+    // Past the sentinel knot the function is still affine, with the slope of
+    // the final segment. Extrapolating along it is exact.
+    lo = hi - 1;
+  } else {
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (knots[mid] <= gross) lo = mid;
+      else hi = mid;
+    }
+  }
+
+  const ga = knots[lo];
+  const gb = knots[lo + 1];
+  const va = values[lo];
+  const vb = values[lo + 1];
+  return va + ((gross - ga) * (vb - va)) / (gb - ga);
+}
+
+/** The wage at which a strictly increasing curve reaches `target`. */
+function invert(curve, target) {
+  const { knots, values } = curve;
+  if (target <= values[0]) return knots[0];
+
+  const last = values.length - 1;
+  let lo;
+  if (target >= values[last]) {
+    lo = last - 1;
+    if (values[last] <= values[lo]) return null;
+  } else {
+    lo = 0;
+    let hi = last;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (values[mid] <= target) lo = mid;
+      else hi = mid;
+    }
+  }
+
+  const va = values[lo];
+  const vb = values[lo + 1];
+  if (vb === va) return knots[lo];
+  return knots[lo] + ((target - va) * (knots[lo + 1] - knots[lo])) / (vb - va);
+}
 
 /**
- * Fetch the definitions the pages describe themselves with.
+ * The full liability at one wage in one jurisdiction.
+ *
+ * Shaped exactly like the `TaxBreakdown` the pages already read, because they
+ * itemise every line of it in the tax panel.
+ */
+export function liability(gross, stateCode, local = null) {
+  const curves = META.curves;
+  const jurisdiction = curves.states[stateCode];
+  if (!jurisdiction) throw new Error(`Unknown state: ${stateCode}`);
+
+  const federal = interpolate(curves.federal, gross);
+  const fica = interpolate(curves.fica, gross);
+  const stateIncome = interpolate(jurisdiction.income, gross);
+
+  // No wage, no levies — matching app/tax.py, which returns an empty breakdown
+  // rather than a list of zeroes. A row reading "State Disability Insurance $0"
+  // is noise, not detail.
+  const detail =
+    gross > 0
+      ? jurisdiction.payroll.map((levy) => ({
+          label: levy.label,
+          amount: interpolate(levy, gross),
+        }))
+      : [];
+
+  let statePayroll = 0;
+  for (const item of detail) statePayroll += item.amount;
+
+  const localAmount = local ? interpolate(curves.local[local], gross) : 0;
+  const total = federal + fica + (stateIncome + statePayroll) + localAmount;
+
+  return {
+    gross,
+    federal,
+    fica,
+    stateIncome,
+    statePayroll,
+    statePayrollDetail: detail,
+    local: localAmount,
+    total,
+    net: gross - total,
+    effectiveRate: gross > 0 ? total / gross : 0,
+  };
+}
+
+/**
+ * Take-home against gross for one jurisdiction, built from the component curves.
+ *
+ * The knots are the union of every component's, because that is where the total
+ * kinks. Built the same way Python builds it, from the same published numbers,
+ * which is what lets both sides land on identical doubles rather than merely
+ * close ones.
+ */
+const netCurves = new Map();
+function netCurve(stateCode, local = null) {
+  const key = local ? `${stateCode}:${local}` : stateCode;
+  let curve = netCurves.get(key);
+  if (curve) return curve;
+
+  const curves = META.curves;
+  const jurisdiction = curves.states[stateCode];
+  const merged = new Set([...curves.federal.knots, ...curves.fica.knots, ...jurisdiction.income.knots]);
+  for (const levy of jurisdiction.payroll) for (const k of levy.knots) merged.add(k);
+  if (local) for (const k of curves.local[local].knots) merged.add(k);
+
+  const knots = [...merged].sort((a, b) => a - b);
+  curve = { knots, values: knots.map((k) => liability(k, stateCode, local).net) };
+  netCurves.set(key, curve);
+  return curve;
+}
+
+/** Smallest gross salary whose take-home reaches `targetAnnualNet`. */
+export function grossForNet(targetAnnualNet, stateCode, local = null) {
+  if (targetAnnualNet === null || !(targetAnnualNet > 0)) return 0;
+  return invert(netCurve(stateCode, local), targetAnnualNet);
+}
+
+// --- model derivations ---------------------------------------------------
+//
+// Each of these is a comparison against a threshold Python published in META.
+// None of them chooses a number.
+
+/** Which needs-share class a share falls in: 0 (easiest) to 6 (hardest). */
+export function needsShareStep(share) {
+  if (share === null || share === undefined || !Number.isFinite(share)) return null;
+  const breaks = META.needsShareBreaks;
+  for (let i = 0; i < breaks.length; i += 1) if (share <= breaks[i]) return i;
+  return breaks.length;
+}
+
+/** The darkest class, for a county whose take-home covers nothing at all. */
+const lastStep = () => META.needsShareBreaks.length;
+
+/** `maxNeedsShare` arrives as null for the open-ended band — JSON has no Infinity. */
+const ceiling = (band) => (band.maxNeedsShare === null ? Infinity : band.maxNeedsShare);
+
+/** Where a take-home figure lands on the ladder. Bands are ordered hardest first. */
+export function classify(monthlyNet, needs) {
+  const bands = META.bands;
+  if (!(monthlyNet > 0)) return bands[0];
+  const share = needs / monthlyNet;
+  let match = bands[0];
+  for (const band of bands) if (share <= ceiling(band)) match = band;
+  return match;
+}
+
+/** The salary ladder for one place: what each named standard costs there. */
+export function salaryBands(rent, nonHousingMonthly, stateCode, local = null) {
+  const needs = rent + nonHousingMonthly;
+  const at = (share) => grossForNet((needs * 12) / share, stateCode, local);
+  return {
+    rent,
+    nonHousingMonthly,
+    monthlyNeeds: needs,
+    annualNeeds: needs * 12,
+    survival: at(1.0),
+    gettingBy: at(0.7),
+    comfortable: at(0.5),
+  };
+}
+
+/** Which modelled city tax applies in a county, if any. */
+export const localFor = (fips) => META.localByFips[fips] ?? null;
+
+// --- boot and page state -------------------------------------------------
+
+/**
+ * Fetch the definitions the pages describe themselves with, and the tax curves.
  *
  * These are model, not presentation — the map's class breaks and the verdict's
- * thresholds have to be the same numbers, so both come from the server rather
- * than one being retyped next to the other.
+ * thresholds have to be the same numbers, so both come from here rather than one
+ * being retyped next to the other.
  */
 export async function boot() {
-  META = await json('/api/meta');
+  const [meta, placeNames] = await Promise.all([json(bundleUrl('meta')), json(bundleUrl('places'))]);
+  META = meta;
+  places = placeNames;
   return META;
 }
+
+/** ZORI publishes no bedroom split, so on that basis one file serves every unit. */
+const countiesFile = (basis, unit) => `counties-${basis}-${basis === 'zori' ? 'all' : unit}`;
 
 /**
  * Load the page state for a salary and rent basis.
  *
- * Concurrent calls collapse onto one request. Dragging a salary control fires
- * change events faster than a round trip completes, and without this the map
- * would repaint from whichever response happened to land last rather than from
- * the one the reader is actually looking at.
+ * Only the rent basis touches the network, and only the first time each is
+ * asked for; the salary is applied to what is already in memory. Concurrent
+ * calls collapse onto one request, so a salary dragged faster than a round trip
+ * cannot repaint the map from a stale response.
  */
 export async function refresh(salary, basis = 'zori', unit = 'all') {
-  const url =
-    `/api/snapshot?salary=${encodeURIComponent(salary)}&basis=${encodeURIComponent(basis)}` +
-    `&unit=${encodeURIComponent(unit)}`;
-  const request = json(url).then((data) => {
-    // Only the newest request may install its result. An earlier one resolving
-    // late must not overwrite a newer one that already landed.
+  const request = json(bundleUrl(countiesFile(basis, unit))).then((file) => {
+    const built = build(file, salary, basis, unit);
     if (inFlight === request) {
-      snapshot = data;
+      snapshot = built;
       inFlight = null;
     }
-    return data;
+    return built;
   });
   inFlight = request;
   return request;
+}
+
+/**
+ * Turn a counties file plus a salary into everything the pages render from.
+ *
+ * Take-home is computed once per tax jurisdiction rather than once per county —
+ * 53 evaluations instead of 3,142. The key is (state, local) rather than state
+ * alone, which is what keeps the map and the tooltip agreeing over New York
+ * City: painting the boroughs on state-only tax while the hover included city
+ * tax is a bug this shape makes unrepresentable.
+ */
+function build(file, salary, basis, unit) {
+  const bands = META.bands;
+  const nets = new Map();
+  const counties = {};
+  const bandCounts = {};
+  const netByState = {};
+
+  for (const [fips, [rent, nonHousing]] of Object.entries(file.counties)) {
+    const stateCode = places[fips]?.[1];
+    const local = localFor(fips);
+    const key = local ? `${stateCode}:${local}` : stateCode;
+
+    let monthlyNet = nets.get(key);
+    if (monthlyNet === undefined) {
+      monthlyNet = liability(salary, stateCode, local).net / 12;
+      nets.set(key, monthlyNet);
+      if (!local) netByState[stateCode] = monthlyNet;
+    }
+
+    // IEEE 754 addition is correctly rounded, so this is the same double Python
+    // computed — which is why the file ships the two parts rather than the sum.
+    const needs = rent + nonHousing;
+    const share = monthlyNet > 0 ? needs / monthlyNet : null;
+    // A county whose take-home covers nothing still has to paint, and the
+    // darkest class is the honest answer rather than a hole in the map.
+    const step = share !== null ? needsShareStep(share) : lastStep();
+    const band = classify(monthlyNet, needs);
+    bandCounts[band.id] = (bandCounts[band.id] ?? 0) + 1;
+
+    // Positional rows, and the same five fields in the same order the JSON API
+    // used to send. The pages read `row[0]` and `row[3]` directly rather than
+    // going through the accessors below, so this order is a published contract
+    // and not an implementation detail.
+    counties[fips] = [step, needs, share, bands.indexOf(band), monthlyNet];
+  }
+
+  return {
+    basis, unit, salary,
+    netByState,
+    bands,
+    bandCounts,
+    counties,
+    withRent: Object.keys(counties).length,
+    states: file.states,
+  };
 }
 
 export const ready = () => snapshot !== null;
@@ -101,76 +376,244 @@ export const withRent = () => snapshot?.withRent ?? 0;
 /** Every county priced on the current basis. */
 export const pricedFips = () => Object.keys(snapshot?.counties ?? {});
 
+// --- per-selection answers ------------------------------------------------
+//
+// These stayed asynchronous when the API went away. They no longer touch the
+// network except on the first call for a dataset, but the pages already await
+// them, and a facade that returns a promise is free to start needing one again.
+
 /**
  * The full picture for one county: the salary ladder, the tax breakdown, and
  * the cost breakdown behind the needs figure.
- *
- * Separate from the snapshot because it is per-selection rather than
- * per-county, and carrying a ladder for 1,351 counties in every repaint would
- * cost far more than the one request a selection costs.
  */
-export function assessCounty(fips, salary, basis = 'zori', unit = 'all') {
-  return json(
-    `/api/assess?fips=${encodeURIComponent(fips)}&salary=${encodeURIComponent(salary)}` +
-      `&basis=${encodeURIComponent(basis)}&unit=${encodeURIComponent(unit)}`,
-  );
+export async function assessCounty(fips, salary, basis = 'zori', unit = 'all') {
+  const file = await json(bundleUrl(countiesFile(basis, unit)));
+
+  const place = places[fips];
+  if (!place) throw new Error(`Unknown county: ${fips}`);
+  const [name, stateCode] = place;
+
+  const priced = file.counties[fips];
+  if (!priced) {
+    // Deliberately not an error: "no figure is published for this county on
+    // this basis" is a real answer, and the pages draw it as one. Which half is
+    // missing is Python's call, published in the counties file, because a county
+    // can be missing both and the two sentences are not interchangeable.
+    return {
+      fips, name, state: stateCode, basis, unit,
+      available: false,
+      missing: file.missingRent.includes(fips) ? 'rent' : 'nonHousing',
+    };
+  }
+
+  const [rent, nonHousing] = priced;
+  // Only needed for the cost-breakdown chart, so it is fetched here rather than
+  // at boot — an unpriceable county never pays for it.
+  const wage = await json(dataUrl('county-living-wage.json'));
+  const local = localFor(fips);
+  const tax = liability(salary, stateCode, local);
+  const monthlyNet = tax.net / 12;
+  const needs = rent + nonHousing;
+  const share = monthlyNet > 0 ? needs / monthlyNet : null;
+
+  return {
+    fips, name, state: stateCode, basis, unit,
+    available: true,
+    local,
+    salary,
+    rent,
+    nonHousingMonthly: nonHousing,
+    monthlyNeeds: needs,
+    monthlyNet,
+    monthlySurplus: monthlyNet - needs,
+    needsShare: share,
+    needsShareStep: needsShareStep(share),
+    rentShare: monthlyNet > 0 ? rent / monthlyNet : null,
+    band: classify(monthlyNet, needs),
+    bands: salaryBands(rent, nonHousing, stateCode, local),
+    tax,
+    breakdown: wage.counties.find((c) => c.fips === fips)?.e,
+    unmodelledLocalTax: META.unmodelledLocalTax[stateCode],
+  };
 }
 
 /** Per-state rollups: cheapest, median and dearest county, and the spread. */
-export function stateRollups(basis = 'zori', unit = 'all') {
-  return json(
-    `/api/states?basis=${encodeURIComponent(basis)}&unit=${encodeURIComponent(unit)}`,
-  );
+export async function stateRollups(basis = 'zori', unit = 'all') {
+  const file = await json(bundleUrl(countiesFile(basis, unit)));
+  return { basis, unit, states: file.states };
 }
 
 /**
  * Everything about one state: its rollup, ladder, tax, and what "comfortable"
  * costs in each of its counties.
- *
- * That last part is a bisection per county, which is why the By-state page asks
- * for it once per selection rather than once per row it draws.
  */
-export function stateDetail(code, salary, basis = 'zori', unit = 'all') {
-  return json(
-    `/api/state/${encodeURIComponent(code)}?salary=${encodeURIComponent(salary)}` +
-      `&basis=${encodeURIComponent(basis)}&unit=${encodeURIComponent(unit)}`,
-  );
+export async function stateDetail(code, salary, basis = 'zori', unit = 'all') {
+  const file = await json(bundleUrl(countiesFile(basis, unit)));
+  code = code.toUpperCase();
+
+  const state = META.states[code];
+  if (!state) throw new Error(`Unknown state: ${code}`);
+
+  const rollup = file.states[code];
+  if (!rollup) {
+    // A state can have counties on one basis and none on the other. That is an
+    // answer, not an error — the page says so rather than drawing a blank.
+    return { code, name: state.name, basis, unit, available: false };
+  }
+
+  const tax = liability(salary, code);
+  const monthlyNet = tax.net / 12;
+  const median = rollup.median;
+
+  const counties = [];
+  for (const [fips, [rent, nonHousing]] of Object.entries(file.counties)) {
+    if (places[fips]?.[1] !== code) continue;
+    const needs = rent + nonHousing;
+    const share = monthlyNet > 0 ? needs / monthlyNet : null;
+    counties.push({
+      fips,
+      name: places[fips][0],
+      rent,
+      nonHousingMonthly: nonHousing,
+      needs,
+      comfortable: salaryBands(rent, nonHousing, code).comfortable,
+      needsShare: share,
+      step: share !== null ? needsShareStep(share) : lastStep(),
+    });
+  }
+
+  return {
+    code,
+    name: state.name,
+    basis, unit, salary,
+    available: true,
+    tax,
+    monthlyNet,
+    rollup,
+    band: classify(monthlyNet, median.needs),
+    bands: salaryBands(median.rent, median.nonHousingMonthly, code),
+    counties,
+    unmodelledLocalTax: META.unmodelledLocalTax[code],
+  };
+}
+
+// --- compensation profiles ------------------------------------------------
+
+/** Gross wage income in one year of an offer. `year` is 0-indexed. */
+function grossForYear(profile, year) {
+  const vesting = profile.vesting ?? [];
+  const bonuses = profile.bonuses ?? [];
+  const vested = (vesting[year] ?? 0) * (profile.rsuGrant ?? 0) * (profile.equityHaircut ?? 1);
+  return profile.baseSalary + (bonuses[year] ?? 0) + vested;
 }
 
 /**
- * Every sourced offer against every tracked hub, in one response.
+ * An offer against one hub.
  *
- * The heatmap needs 7 x 21 and the ranked bars need one row of it, so asking
- * per profile would put six avoidable round trips in front of the page settling.
+ * The headline ratio uses BASE SALARY ONLY. Equity and bonuses appear beside it,
+ * never folded in: a sign-on bonus is one lump in January and RSUs vest at a
+ * price nobody can predict, so treating either as evenly-spendable monthly
+ * income flatters the number exactly where a relocation decision can least
+ * afford flattery.
  */
-export function rankAll() {
-  return json('/api/rank');
+function affordability(profile, rent, stateCode, local = null) {
+  // An offer that nets nothing cannot cover any rent; report that rather than
+  // dividing by zero and rendering an infinity into a chart.
+  const ratio = (monthlyNet) => (monthlyNet > 0 ? rent / monthlyNet : null);
+
+  const baseTax = liability(profile.baseSalary, stateCode, local);
+  const baseMonthlyNet = baseTax.net / 12;
+  const yearCount = Math.max((profile.vesting ?? []).length, (profile.bonuses ?? []).length, 1);
+
+  const years = [];
+  for (let y = 0; y < yearCount; y += 1) {
+    const gross = grossForYear(profile, y);
+    const monthlyNet = liability(gross, stateCode, local).net / 12;
+    years.push({ year: y + 1, gross, monthlyNet, ratio: ratio(monthlyNet) });
+  }
+
+  return { baseRatio: ratio(baseMonthlyNet), baseMonthlyNet, baseTax, years };
+}
+
+/** Classify a rent burden against the HUD thresholds published in META. */
+function burdenLevel(ratio) {
+  if (ratio === null || ratio === undefined) return 'unknown';
+  if (ratio >= META.severelyCostBurdenedThreshold) return 'severe';
+  if (ratio >= META.costBurdenedThreshold) return 'burdened';
+  return 'ok';
+}
+
+function rankRows(profile, hubs) {
+  const rows = hubs.map((hub) => {
+    const result = affordability(profile, hub.rent, hub.state, hub.local ?? null);
+    return {
+      hub,
+      baseRatio: result.baseRatio,
+      baseMonthlyNet: result.baseMonthlyNet,
+      burden: burdenLevel(result.baseRatio),
+      years: result.years,
+    };
+  });
+  // A hub with no computable ratio sorts last rather than crashing the sort.
+  rows.sort((a, b) => (a.baseRatio ?? 9e9) - (b.baseRatio ?? 9e9));
+  return rows;
+}
+
+const offers = () =>
+  Promise.all([json(dataUrl('profiles.json')), json(dataUrl('rents.json'))]);
+
+/** Every sourced offer against every tracked hub, in one pass. */
+export async function rankAll() {
+  const [profiles, rents] = await offers();
+  return {
+    profiles: Object.fromEntries(
+      profiles.profiles.map((p) => [p.id, rankRows(p, rents.hubs)]),
+    ),
+    hubCount: rents.hubs.length,
+  };
 }
 
 /**
  * One offer against the tracked hubs, cheapest burden first.
  *
- * `overrides` carries the four editable fields. They are applied server-side on
- * top of the named preset rather than posted as a whole profile, which keeps
- * the vesting schedule and the equity haircut authoritative there instead of
- * being round-tripped through the browser where they could drift.
+ * `overrides` carries the editable fields, applied on top of the named preset
+ * rather than replacing it, which keeps the vesting schedule and equity haircut
+ * authoritative in `data/profiles.json` instead of drifting.
  */
-export function rank(profileId, overrides = {}) {
-  const params = new URLSearchParams({ profile: profileId });
-  for (const [key, value] of Object.entries(overrides)) {
-    if (value !== null && value !== undefined) params.set(key, value);
+export async function rank(profileId, overrides = {}) {
+  const [profiles, rents] = await offers();
+  const preset = profiles.profiles.find((p) => p.id === profileId);
+  if (!preset) throw new Error(`Unknown profile: ${profileId}`);
+
+  const profile = { ...preset };
+  for (const field of ['baseSalary', 'rsuGrant', 'equityHaircut']) {
+    if (overrides[field] !== null && overrides[field] !== undefined) {
+      profile[field] = Number(overrides[field]);
+    }
   }
-  return json(`/api/rank?${params}`);
+  // Only the first year's bonus is editable: a sign-on bonus is a year-one
+  // event, and copying it across four years would invent three payments nobody
+  // offered.
+  if (overrides.bonus0 !== null && overrides.bonus0 !== undefined) {
+    const bonuses = preset.bonuses ?? [];
+    profile.bonuses = [Number(overrides.bonus0), ...bonuses.slice(1)];
+  }
+
+  return { profile, rows: rankRows(profile, rents.hubs) };
 }
 
 /**
  * Rent history and seasonal index for one county.
  *
- * `rent` prices the seasonal swing in money. It defaults server-side to the
- * county's own latest observation, so passing it is an override rather than a
- * requirement.
+ * The saving is precomputed in Python at each county's own latest observation,
+ * so the money this page quotes and the money the method page describes come
+ * from one implementation.
  */
-export function timing(fips, rent) {
-  const query = rent ? `?rent=${encodeURIComponent(rent)}` : '';
-  return json(`/api/timing/${encodeURIComponent(fips)}${query}`);
+export async function timing(fips) {
+  const file = await json(bundleUrl('timing'));
+  return {
+    saving: file.savings[fips] ?? null,
+    firstMonth: file.firstMonth,
+    lastMonth: file.lastMonth,
+  };
 }
