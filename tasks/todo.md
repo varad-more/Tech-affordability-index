@@ -546,3 +546,88 @@ compress at the edge.
 Nothing is deployed. Pages cannot run Flask, so the site is currently live
 nowhere. `render.yaml` and the `Procfile` are ready; the host and the DNS record
 are not.
+
+---
+
+## Review: back to static, and actually live (2026-07-26)
+
+Closes the gap the previous section ended on. The site is serving at
+**https://affordability-index.varadmore.me/** — four pages, HTTPS, a valid
+certificate, no console errors.
+
+### Why the previous plan could not work
+
+The subdomain CNAMEs to GitHub Pages, and **Pages serves files; it runs no
+code.** Flask needs a process. Two separate faults were stacked:
+
+1. No repository claimed the domain. `dist/CNAME` had been deleted during the
+   port, so GitHub answered 404 for a hostname that resolved to it perfectly.
+2. Even claimed, Pages could never have executed the application.
+
+`render.yaml` and the `Procfile` were my answer to (2), and they were the wrong
+answer to the question actually being asked, which was "keep this on Pages".
+
+### The idea that made static viable
+
+A reader types any salary, so the answers cannot be precomputed; and
+reimplementing the tax engine in JavaScript would put fifty states of brackets
+in a second language. Neither was necessary, because of a property of the tax
+code:
+
+> Every component of the liability is **piecewise linear in gross wages**, and
+> every kink is a known constant — bracket edges, the Social Security wage base,
+> the Additional Medicare threshold, payroll caps.
+
+So Python evaluates the engine at each kink and publishes the knot points; the
+browser interpolates. Exact, not approximate — between two knots the function
+genuinely is a straight line. 733 knots, ~20 KB, and the browser holds one
+multiply and one add.
+
+Verified before a line was built on it: 111,440 samples across all 53
+jurisdictions, worst error 3.7e-9 dollars.
+
+### What that bought
+
+| | Before (Flask API) | After (static) |
+|---|---|---|
+| Salary change | 178 KB round trip | no network at all |
+| Per rent basis | — | 50–88 KB, fetched once |
+| Browser suite | 4.6 min | 19 s |
+| Hosting | a Python process, cold starts | files |
+
+### Bugs found and fixed in this pass
+
+- **New York has a real $25,000,000 bracket edge**, which sat above the fixed
+  sentinel knot and left the knot array unsorted. Every binary search over it
+  was silently wrong.
+- **`Locality` carried no state**, so the city-tax curve had to hardcode the
+  NYC/PHL mapping to find the right standard deduction. A third city would have
+  silently taken New York's.
+- **A duplicate `"local"` key** in the fixture generator: the tax amount
+  overwrote the jurisdiction code.
+- **`affordability()` evaluated the engine while the browser evaluated the
+  curve**, so they disagreed in the last bit. Python now has one evaluation path.
+- **A data refresh could never have reached the site.** GitHub deliberately does
+  not let a push made with `GITHUB_TOKEN` trigger another workflow, so the weekly
+  ingest would have committed new rents and published nothing — the exact
+  staleness this project exists to complain about.
+
+### Verified, not assumed
+
+- **582 tests**: 460 pytest, 59 Node, 63 browser. All green in CI.
+- **The browser's arithmetic is proved against Python**, not reviewed: 1,284
+  cases, compared **exactly**, bit for bit. Both ends pinned, so neither can be
+  edited into agreement.
+- **One test asserts the negative** — that no tax constant appears in any shipped
+  JavaScript outside a comment.
+- **The browser suite runs against `dist/`**, the artefact Pages publishes, with
+  Pages' own redirect and 404 behaviour reproduced locally.
+- **Live checks**: all four pages 200, `/states` → 301, unknown path → the site's
+  own 404, canonical tags and CNAME agreeing.
+
+### Not done, deliberately
+
+- **No rate limiting.** There is nothing left to rate-limit: the site is files.
+  This is now solved by the architecture rather than deferred.
+- **`tasks/todo.md` is still tracked.** It is an internal log, and this entry is
+  the first that describes the architecture that actually ships.
