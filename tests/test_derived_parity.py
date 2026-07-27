@@ -97,15 +97,29 @@ def test_seasonal_decomposition_matches_the_javascript():
             continue
 
         assert got is not None, case["fips"]
-        assert got.index == want["index"], case["fips"]
         assert got.years == want["years"], case["fips"]
-        assert got.amplitude == want["amplitude"], case["fips"]
         assert got.cheapest == want["cheapest"], case["fips"]
         assert got.dearest == want["dearest"], case["fips"]
 
+        # To a few ULP rather than bit-exact, unlike the tax engine above, and
+        # the difference is worth stating rather than papering over.
+        #
+        # The tax engine is addition, multiplication and min/max on doubles.
+        # IEEE 754 pins every one of those exactly, so two correct
+        # implementations agree to the last bit on any platform.
+        #
+        # This is a decomposition: it averages long runs of ratios, and the
+        # accuracy of a float sum depends on how it is accumulated. The
+        # JavaScript reduced left to right; the Python uses math.fsum, which is
+        # exactly rounded. They therefore differ in the last bit or two, and the
+        # Python is the more accurate of the two. Demanding equality here would
+        # be demanding that the port reproduce the original's rounding error.
+        assert got.index == pytest.approx(want["index"], rel=1e-12), case["fips"]
+        assert got.amplitude == pytest.approx(want["amplitude"], rel=1e-12), case["fips"]
+
         saving = seasonal_saving(got.index, 2000)
-        assert saving.monthly == want["saving"]["monthly"], case["fips"]
-        assert saving.annual == want["saving"]["annual"], case["fips"]
+        assert saving.monthly == pytest.approx(want["saving"]["monthly"], rel=1e-12)
+        assert saving.annual == pytest.approx(want["saving"]["annual"], rel=1e-12)
 
 
 def test_centred_trend_matches():
@@ -143,9 +157,10 @@ def test_the_shipped_index_cannot_be_recomputed_from_the_shipped_history():
     close. Pinned here rather than left to be rediscovered as a bug, with the
     observed bound recorded so a genuine regression still shows up.
 
-    The port's own fidelity is proved bit-exactly by
+    The port's own fidelity is proved by
     :func:`test_seasonal_decomposition_matches_the_javascript`, which feeds both
-    engines identical inputs.
+    engines identical inputs. That drift is measured in ULP; this one is
+    measured in thousandths, and they are unrelated.
     """
     deviations = []
     for case in FIXTURE["seasonalCases"]:
@@ -176,7 +191,7 @@ def test_a_known_seasonal_answer_is_recovered():
     want = FIXTURE["synthetic"]["result"]
 
     assert got is not None
-    assert got.index == want["index"]
+    assert got.index == pytest.approx(want["index"], rel=1e-12)
     assert got.dearest == 3
     assert got.cheapest == 9
     assert 0.09 < got.amplitude < 0.11

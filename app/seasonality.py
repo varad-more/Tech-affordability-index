@@ -23,6 +23,7 @@ they are what this data can support, and they are small compared with the
 differences between places.
 """
 
+import math
 from typing import List, NamedTuple, Optional, Sequence, Tuple
 
 #: Half-weight on the two end months so the window spans exactly twelve.
@@ -113,8 +114,14 @@ def seasonal_index(
     if min(counts) < min_years:
         return None
 
-    raw = [sum(group) / len(group) for group in ratios]
-    mean = sum(raw) / 12
+    # math.fsum, not sum(). Python 3.12 changed sum() for floats to Neumaier
+    # compensated summation, so the same code returns results one ULP apart on
+    # 3.11 and 3.12 — which CI found by running a version this machine does not
+    # have. fsum is exactly rounded, so it is identical on every version and
+    # platform, and it is the more accurate of the two rather than a compromise
+    # between them.
+    raw = [math.fsum(group) / len(group) for group in ratios]
+    mean = math.fsum(raw) / 12
     index = [value / mean for value in raw]
 
     return SeasonalIndex(
