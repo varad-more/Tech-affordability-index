@@ -1,0 +1,64 @@
+name: Deploy to Pages
+
+# Called by CI once every suite has passed, and dispatchable by hand or by the
+# data refresh. Defined once and reused rather than copied, because two copies
+# of a deploy is how a site ends up published from a path nobody tested.
+#
+# Never triggered by `push` directly: publishing is gated on the tests, and a
+# push trigger here would race CI and could publish a build that had not passed.
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  # deploy-pages authenticates to Pages with a short-lived OIDC token rather
+  # than a stored secret.
+  id-token: write
+
+# Never two deploys at once, and never cancel one midway: an interrupted deploy
+# can leave the site serving a half-uploaded artifact.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build and deploy
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      # Renders every page through the Flask app's own test client and writes
+      # the bundle Python computed. Exits non-zero if any page fails to render,
+      # so a broken build never reaches the upload step.
+      - name: Freeze the site
+        run: python scripts/freeze.py
+
+      # The two files that decide whether Pages serves this correctly at all.
+      # Checked here as well as in the test suite, because this is the copy that
+      # actually ships and it costs nothing to be sure.
+      - name: Check the artefact claims the domain
+        run: |
+          test -f dist/CNAME || { echo "::error::dist/CNAME is missing — the custom domain will 404"; exit 1; }
+          test -f dist/.nojekyll || { echo "::error::dist/.nojekyll is missing — Jekyll will eat underscored paths"; exit 1; }
+          echo "CNAME: $(cat dist/CNAME)"
+
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
+
+      - id: deploy
+        uses: actions/deploy-pages@v5

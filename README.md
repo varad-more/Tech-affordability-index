@@ -75,12 +75,13 @@ never converts one into the other.
 
 ## Running it
 
-**A Flask application.** Every figure is computed in Python and fetched; the
-browser renders and does no arithmetic. No database — the datasets are committed
-JSON, loaded once at boot.
+**A Flask application that is published as static files.** Flask renders the
+site; `scripts/freeze.py` drives it through its own test client at build time
+and writes the result to `dist/`, which is what GitHub Pages serves. No database,
+no server in production — the datasets are committed JSON.
 
-**Requires Python 3.9+ and Node 22+.** Python runs the application. Node runs
-the ingests, which are build-time only and never execute in a request.
+**Requires Python 3.9+ and Node 22+.** Python owns the model. Node runs the
+ingests, which are build-time only and never execute in a request.
 
 ```bash
 git clone https://github.com/varad-more/affordability-index
@@ -90,15 +91,48 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt -r requirements-dev.txt
 npm install                    # Playwright, for the browser tests
 
-npm run serve                  # http://localhost:4173
+npm run serve                  # http://localhost:4173 — Flask, live
+npm run build                  # freeze to dist/
+npm run serve:dist             # freeze, then serve dist/ as Pages would
 ```
+
+### How a static site computes tax
+
+The interesting constraint. Pages runs no code, so a reader typing a salary gets
+no server — and salary is continuous, so precomputing every answer is impossible.
+The obvious escape is to reimplement the tax engine in JavaScript, which is fifty
+states of bracket tables in a second language, drifting from the first.
+
+It is avoidable, because of a property the tax code has: **every component of the
+liability is piecewise linear in gross wages, and every kink is a known
+constant.** Bracket edges, the Social Security wage base, the Additional Medicare
+threshold, payroll caps — all of them. So Python evaluates the engine at each
+kink and publishes the resulting knot points (`app/net_curve.py`), and the
+browser reads take-home off that curve by linear interpolation.
+
+That is **exact, not approximate**: between two adjacent knots the function
+genuinely is a straight line. What the browser holds is one multiply and one add.
+What it does not hold is a single bracket, rate, deduction or threshold — roll
+the tax year in `app/tax_data.py` and no JavaScript changes.
+
+The whole arrangement rests on that linearity claim, so the claim is executable
+rather than asserted. `tests/test_net_curve.py` samples every jurisdiction
+densely and crowds the neighbourhood of every knot, and fails loudly if a future
+tax rule is not piecewise linear.
+
+The small amount of arithmetic that did move to the browser — interpolate,
+divide, compare against thresholds Python published — is proved rather than
+reviewed, the same way the original port was. `scripts/make_parity_fixture.py`
+writes down what Python answers for 1,284 cases; the browser suite makes the
+deployed JavaScript answer the same ones. The comparison is exact, to the last
+bit, and both ends are pinned so neither can be edited into agreement.
 
 ### Why two languages
 
 The engine moved to Python; the ingests did not. They fetch, parse and commit
-the datasets on a schedule, they are already tested, and nothing they do happens
-inside a request. Rewriting working build-time code to make a language count
-tidier is not a reason.
+the datasets on a schedule, they are already tested, and nothing they do runs at
+build time for the site. Rewriting working code to make a language count tidier
+is not a reason.
 
 One consequence is named rather than hidden: `src/seasonality.js` and
 `app/seasonality.py` are the same decomposition in two languages, because the
@@ -109,13 +143,18 @@ reproduces the JavaScript bit-for-bit on real committed series.
 ### Tests
 
 ```bash
-npm run test:py      # 165 engine tests: tax, bands, affordability, seasonality, rollups, parity
+npm run test:py      # 460 engine tests: tax, curves, bands, bundle, freeze, parity
 npm test             #  59 ingest tests: projection, CSV parsing, dataset shape
-npm run test:e2e     #  56 browser tests: asserts the charts actually drew
+npm run test:e2e     #  63 browser tests: the charts drew, and the maths agrees
 npm run test:all     # all three
 ```
 
-`npm run test:e2e` boots the Flask app itself if nothing is already listening.
+`npm run test:e2e` **freezes the site and serves `dist/`**, not the development
+server, because `dist/` is the artefact Pages publishes — a suite pointed at
+`flask run` would pass while the frozen output was missing a file or serving the
+wrong 404. `scripts/serve_dist.py` reproduces Pages' own directory-index,
+redirect and 404 behaviour so the target is faithful.
+
 On a fresh clone Playwright needs its browser once:
 `npx playwright install chromium`.
 
@@ -172,41 +211,46 @@ did before the rewrite, for its entire existence.
 
 ## How it stays current
 
-Two GitHub Actions workflows, both in `.github/workflows`:
+Three GitHub Actions workflows, all in `.github/workflows`:
 
-- **`ci.yml`** runs the engine tests, the ingest tests and the browser tests.
-  **It does not deploy.** The site ran on GitHub Pages until the Flask port, and
-  Pages serves static files only — it cannot run this. `render.yaml` and the
-  `Procfile` are ready for a Python host; wiring the job to one is the remaining
-  step. An unwired job beats a job that pretends to deploy.
-- **`refresh-data.yml`** runs the rent ingests weekly, re-runs the unit tests
+- **`ci.yml`** runs the engine tests, the ingest tests and the browser tests, and
+  on `main` calls the deploy once all three are green.
+- **`pages.yml`** freezes the site and publishes `dist/` to GitHub Pages. It is a
+  reusable workflow rather than a `push` trigger, so there is one deploy
+  definition and it can only be reached after the tests.
+- **`refresh-data.yml`** runs the rent ingests weekly, re-runs both unit suites
   against the new figures, and commits only if the data actually moved. Zillow's
   monthly release date drifts, so polling weekly catches it without waiting an
-  extra month; the commit step no-ops the rest of the time.
+  extra month; the commit step no-ops the rest of the time. It then dispatches
+  the deploy explicitly — GitHub deliberately does not let a push made with
+  `GITHUB_TOKEN` trigger another workflow, so without that step the data would
+  refresh in the repository and the published site would keep serving last
+  month's figures.
 
 The git history of `data/` **is** the freshness record. Every refresh is a dated,
 diffable commit, which makes the claim that these numbers are current auditable
 rather than asserted.
 
-**Deploying your own:** any host that runs a Python web process. `render.yaml`
-is a Render blueprint; the `Procfile` works on Render, Railway and anything
-Heroku-shaped. Both start the same command:
+**Deploying your own:** anything that serves files.
 
+```bash
+python scripts/freeze.py --origin https://example.com
+# dist/ is the whole site
 ```
-gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --threads 4
-```
 
-Set **`SITE_ORIGIN`** to the origin the deploy actually answers on. It is what
-the canonical tags, the Open Graph URLs, `robots.txt` and `sitemap.xml` are
-rendered from, and a staging deploy that inherits the production value will
-publish canonical tags pointing at a host it does not control.
+Set **`--origin`** (or `SITE_ORIGIN`) to the origin the deploy actually answers
+on. It is what the canonical tags, the Open Graph URLs, `robots.txt` and
+`sitemap.xml` are rendered from, and a staging build that inherits the production
+value will publish canonical tags pointing at a host it does not control.
 
-Two workers, four threads each. Each process holds about 2 MB of datasets and
-every request is CPU-light but never I/O-blocked — nothing here talks to a
-database or a third party — so threads are cheap and workers are what cost
-memory.
+`dist/CNAME` is how a repository claims a custom domain from GitHub Pages, and
+it is written from the origin. Deleting it is not cosmetic: the subdomain still
+resolves to GitHub, nothing claims it, and GitHub answers 404 for the whole site.
+`tests/test_freeze.py` and the browser suite both assert it is there and agrees
+with the head tags, because that failure is invisible until someone visits.
 
-Rolling to a new tax year means editing `src/tax-data.js` and nothing else.
+Rolling to a new tax year means editing `app/tax_data.py` and nothing else — not
+the engine, not the curves, and no JavaScript.
 
 ## Things worth knowing about the code
 
@@ -252,22 +296,24 @@ every internal link resolving, and no horizontal overflow at three widths.
 ## Layout
 
 ```
-wsgi.py                 gunicorn entrypoint
-Procfile, render.yaml   deploy config for a Python host
-app/__init__.py         create_app(), the four page routes
-app/api.py              the JSON API the pages compute against
+app/__init__.py         create_app(), the four page routes, the bundle routes
 app/datasets.py         the committed data, loaded once and indexed
 app/tax.py              tax engine (holds no constants)
 app/tax_data.py         every bracket and rate, each with its source
-app/bands.py            survival / getting by / comfortable, by inverting the tax engine
+app/net_curve.py        the engine as knot points the browser can evaluate exactly
+app/bands.py            survival / getting by / comfortable, by inverting the curve
 app/affordability.py    rent against take-home, base salary only in the headline
 app/state_rollup.py     a state's median, cheapest and dearest county, all real places
 app/seasonality.py      classical multiplicative decomposition
+app/bundle.py           everything Python knows, in the form the browser reads it
 app/templates/          base.html plus one per page; robots.txt and sitemap.xml too
-assets/                 rendering only; charts.js and map.js are hand-rolled SVG, zero deps
-assets/engine.js        the client side of the API; holds no arithmetic
-src/                    build-time JavaScript: projection, CSV, hub list, MIT parser
+scripts/freeze.py       renders the site to dist/ through Flask's own test client
+scripts/serve_dist.py   serves dist/ with GitHub Pages' redirect and 404 behaviour
 scripts/                ingests; each fails loudly, none falls back
+assets/                 rendering only; charts.js and map.js are hand-rolled SVG, zero deps
+assets/engine.js        evaluates the published curves; holds no tax constant
+src/                    build-time JavaScript: projection, CSV, hub list, MIT parser
+dist/                   the built site (gitignored; CI builds it fresh)
 data/                   committed, dated, diffable
 tests/                  pytest — the engine
 test/                   node --test — the ingests

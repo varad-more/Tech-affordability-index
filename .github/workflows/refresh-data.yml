@@ -14,6 +14,10 @@ on:
 
 permissions:
   contents: write
+  # To dispatch the deploy below. A push made with GITHUB_TOKEN deliberately
+  # does not trigger other workflows, so without this the data would refresh in
+  # the repository and never reach the site.
+  actions: write
 
 jobs:
   refresh:
@@ -57,10 +61,12 @@ jobs:
           python -m pytest tests/ -q
 
       - name: Commit if the data moved
+        id: commit
         run: |
           FILES="data/rents.json data/county-rents.json data/rent-history.json"
           if git diff --quiet -- $FILES; then
             echo "No change in rent data."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -70,3 +76,17 @@ jobs:
           git add $FILES
           git commit -m "data: refresh rents to ${ASOF}"
           git push
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      # Dispatched explicitly, because GitHub deliberately does not let a push
+      # made with GITHUB_TOKEN trigger another workflow. Without this the commit
+      # above would land and the published site would keep serving last month's
+      # figures — the exact staleness this project exists to complain about.
+      #
+      # Safe to deploy straight from here: both test suites have already run
+      # against the new data, several steps above.
+      - name: Publish the refreshed data
+        if: steps.commit.outputs.changed == 'true'
+        run: gh workflow run pages.yml --ref main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

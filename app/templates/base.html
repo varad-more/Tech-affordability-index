@@ -5,9 +5,10 @@
   brand name ended up needing a 69-reference find-and-replace during the rename.
   They exist once now.
 
-  Links are absolute (/states/) rather than relative (states/, ../states/),
-  because Flask routes them from a single root and the old relative forms only
-  worked by accident of directory depth.
+  Links are absolute (/states/) rather than relative (states/, ../states/).
+  The site is served from the root of its own domain, so one spelling works from
+  every page; the old relative forms worked only by accident of directory depth,
+  and each page sits at a different one once frozen.
 #}
 <!doctype html>
 <html lang="en">
