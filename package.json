@@ -9,7 +9,7 @@
     "test:py": ".venv/bin/python -m pytest tests/ -q",
     "test:e2e": "playwright test",
     "test:all": "npm run test:py && npm test && npm run test:e2e",
-    "serve": ".venv/bin/python -m flask --app wsgi run --port 4173 --debug",
+    "serve": ".venv/bin/python -m flask --app app run --port 4173 --debug",
     "fetch-rents": "node scripts/fetch-rents.mjs",
     "fetch-county-rents": "node scripts/fetch-county-rents.mjs",
     "fetch-acs-rents": "node scripts/fetch-acs-rents.mjs",
@@ -17,7 +17,9 @@
     "build-basemap": "node scripts/build-basemap.mjs",
     "build-rent-history": "node scripts/build-rent-history.mjs",
     "refresh": "npm run fetch-rents && npm run fetch-county-rents && npm run build-rent-history",
-    "previews": "node scripts/render-previews.mjs"
+    "previews": "node scripts/render-previews.mjs",
+    "build": ".venv/bin/python scripts/freeze.py",
+    "serve:dist": ".venv/bin/python scripts/serve_dist.py --port 4173"
   },
   "engines": {
     "node": ">=22"

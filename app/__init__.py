@@ -1,18 +1,32 @@
 """
 The Affordability Index, as a Flask application.
 
+Flask renders this site; it does not serve it. ``scripts/freeze.py`` drives the
+application through its own test client at build time and writes the result to
+``dist/``, which is what GitHub Pages publishes. So this module is a build tool
+that happens to also run as a server — and running it as one, with
+``flask --app app run``, is exactly how you develop against it.
+
+That arrangement only works because nothing here needs to be live. Every figure
+the pages show is either a committed dataset or something :mod:`app.bundle`
+computes ahead of time, including the tax curves the browser evaluates for
+whatever salary a reader types. There is no request-time computation left to
+lose.
+
 Routes match the URLs the site has always served — ``/``, ``/states/``,
-``/timing/``, ``/method/`` — so the move to a server changed the implementation
-without changing a single address. The trailing slashes are load-bearing: they
-are what the canonical tags, the sitemap and every relative link inside the
-pages already assume.
+``/timing/``, ``/method/`` — so neither the move to Flask nor the move back to
+static files changed a single address. The trailing slashes are load-bearing:
+they are what the canonical tags, the sitemap and every relative link inside the
+pages already assume, and what makes each page a directory once frozen.
 """
 
 import gzip
 import os
 from pathlib import Path
 
-from flask import Flask, Response, render_template, request, send_from_directory
+from flask import Flask, Response, jsonify, render_template, request, send_from_directory
+
+from . import bundle
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -40,9 +54,19 @@ def create_app(config=None) -> Flask:
     if config:
         app.config.update(config)
 
-    from .api import bp as api_bp
+    @app.get("/bundle/<name>.json")
+    def bundle_file(name: str):
+        """Serve a precomputed bundle file, live.
 
-    app.register_blueprint(api_bp)
+        In production these are flat files written by the freeze. Here they are
+        computed per request from the very same functions, so development cannot
+        drift from what gets deployed — the alternative is a stale ``dist/`` that
+        works locally and ships last week's numbers.
+        """
+        payload = bundle.get(name, app.config["SITE_ORIGIN"])
+        if payload is None:
+            return jsonify(error="Unknown bundle file: {}".format(name)), 404
+        return jsonify(payload)
 
     @app.get("/")
     def index():
