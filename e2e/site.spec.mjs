@@ -1,9 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
-// Imported rather than transcribed: the method page quotes these figures in
-// prose, and prose is what goes stale.
-import { FEDERAL, FICA } from '../src/tax-data.js';
 
 const read = (name) =>
   JSON.parse(readFileSync(new URL(`../data/${name}`, import.meta.url), 'utf8'));
@@ -1216,6 +1213,13 @@ test.describe('affordability index', () => {
 
     // Constants quoted in prose must match the engine they claim to describe.
     // The method page has gone stale on exactly this kind of number before.
+    //
+    // Fetched rather than imported: the engine is Python now, so the only way
+    // to check the page against the real constants — rather than against a
+    // JavaScript copy of them that could itself drift — is to ask the server.
+    const { federal: FEDERAL, fica: FICA } =
+      await page.request.get('/api/meta').then((r) => r.json());
+
     const body = await page.locator('#math').innerText();
     for (const value of [
       FEDERAL.standardDeduction,
@@ -1427,8 +1431,13 @@ test.describe('affordability index', () => {
     // page is a duplicate of something that no longer exists. So the assertion
     // reads CNAME — the file that actually decides where the site lives — and
     // requires the head tags to agree with it.
-    const host = readFileSync(new URL('../CNAME', import.meta.url), 'utf8').trim();
-    expect(host, 'CNAME must hold exactly one bare hostname').toMatch(/^[a-z0-9.-]+$/);
+    // The origin comes from the application rather than from a file beside it.
+    // It used to be read from CNAME, which was a GitHub Pages artefact; the
+    // deploy target owns its own hostname now, and /api/meta is the one place
+    // that knows what it is.
+    const origin = (await page.request.get('/api/meta').then((r) => r.json())).siteOrigin;
+    expect(origin, 'the app must advertise an origin').toMatch(/^https:\/\/[a-z0-9.-]+$/);
+    const host = origin.replace(/^https:\/\//, '');
 
     const pages = [
       ['/', ''],

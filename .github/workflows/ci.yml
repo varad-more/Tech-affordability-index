@@ -9,9 +9,24 @@ permissions:
   contents: read
 
 jobs:
-  # Tax and ingestion logic. No dependencies needed — the shipped site has none.
-  unit:
-    name: Unit tests
+  # The engine. Tax, bands, affordability, seasonality, rollups, and the two
+  # golden fixtures that pin all of it against the JavaScript it was ported from.
+  python:
+    name: Engine tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: python -m pytest tests/ -q
+
+  # The ingests, which stayed in Node. They are build-time: they fetch, parse and
+  # commit the datasets the application reads, and never run in a request.
+  node:
+    name: Ingest tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -20,9 +35,9 @@ jobs:
           node-version: '22'
       - run: node --test "test/*.test.mjs"
 
-  # The page renders entirely from client-side modules, so a broken import or a
-  # runtime error still returns HTTP 200 with a blank panel. Only a real browser
-  # catches that.
+  # The pages render from client-side ES modules against a live API, so a broken
+  # import or a shape change returns HTTP 200 with a blank panel. Only a real
+  # browser against the real server catches that.
   e2e:
     name: Browser tests
     runs-on: ubuntu-latest
@@ -32,7 +47,12 @@ jobs:
         with:
           node-version: '22'
           cache: npm
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
 
+      - run: pip install -r requirements.txt
       - run: npm ci
 
       - name: Cache Playwright browsers
@@ -51,7 +71,10 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
 
+      # The suite boots the app itself; CI only has to put a python on PATH.
       - run: npx playwright test
+        env:
+          FLASK_PYTHON: python
 
       - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
@@ -60,27 +83,8 @@ jobs:
           path: playwright-report/
           retention-days: 14
 
-  deploy:
-    name: Deploy to Pages
-    needs: [unit, e2e]
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    permissions:
-      # A job-level permissions block REPLACES the workflow-level one rather than
-      # merging with it, so `contents: read` has to be restated here. Without it
-      # the token cannot see the repository and checkout fails with a misleading
-      # "Repository not found" — which reads like the repo was deleted.
-      contents: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/configure-pages@v6
-      - uses: actions/upload-pages-artifact@v5
-        with:
-          path: .
-      - id: deployment
-        uses: actions/deploy-pages@v5
+  # Deployment is not wired up. The site ran on GitHub Pages until the Flask
+  # port, and Pages serves static files only — it cannot run this. render.yaml
+  # and the Procfile are ready for a Python host; pointing this job at one is
+  # the remaining step, and it needs an account and a deploy key that do not
+  # exist yet. Leaving it unwired beats leaving a job that pretends to deploy.

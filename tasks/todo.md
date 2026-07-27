@@ -493,3 +493,56 @@ for a stray `.html` link is to add the alias back rather than correct the link.
 This forced a fix in `docs/portfolio-redirect/`. Its script had been forwarding
 the old path verbatim, which for `timing.html` would now land on a 404. It maps
 `.html` addresses onto the clean ones instead.
+
+## Review: the Flask port (2026-07-26)
+
+Converted the site from static files on GitHub Pages to a Flask application.
+205 pytest + 59 Node + 56 browser tests pass. The JavaScript engine is deleted.
+
+### How the port was made safe
+
+The bracket tables were **generated, not retyped**. Fifty states and 156
+brackets is exactly where hand-transcription puts a silent numeric bug, and a
+wrong digit in a marginal rate is invisible in review and wrong in every figure
+downstream.
+
+Then it was **proved rather than reviewed**. `tests/fixtures/tax-parity.json`
+holds 2,067 cases dumped from the JavaScript engine immediately before deletion,
+weighted to where a progressive engine goes wrong. All 16,536 compared figures
+came back bit-exact, so the assertion is equality rather than a tolerance — a
+tolerance would quietly absorb a real arithmetic change.
+
+### Bugs found
+
+- **The server ignored the unit-size selector.** The explore page defaults to
+  ACS one-bedroom and the API always answered all-bedroom: $222/month on King
+  County, in the map fill as well as the panel.
+- **The map and the tooltip disagreed over city tax.** Pre-existing. The fill
+  used state-only tax while the tooltip included the city's, so Manhattan read
+  one way in the map and another on hover — a $468/month gap at $156k.
+- **`/api/meta` flattened the state table** to `{code: name}`, so
+  `STATES[code].name` was undefined on two pages and the By-state tax panel
+  threw on a bracket table that was not there.
+- **The By-state heatmap built its columns at module scope** from a category
+  list that arrives at boot, capturing an empty array.
+- **Both pages wrote load failures into an already-hidden element.** That is why
+  the three above stayed invisible: the page looked fine and was half-drawn.
+- **pytest never imported the Flask app.** Every other test imports a maths
+  module directly, so a NameError in `app/datasets.py` passed the entire unit
+  suite and surfaced only in the browser tests. `tests/test_app.py` closes it.
+
+### Performance
+
+Measured, not guessed. `lru_cache` on `priced_counties` and on the `gross_for_net`
+bisection took `/api/state/TX` from **44ms to 1.1ms** — Texas needs 254
+bisections, one per county. Hand-rolled gzip takes the snapshot from 178 KB to
+49 KB; it is fetched on every salary change, and managed platforms do not all
+compress at the edge.
+
+43 MB resident per worker with every dataset loaded.
+
+### Known gap
+
+Nothing is deployed. Pages cannot run Flask, so the site is currently live
+nowhere. `render.yaml` and the `Procfile` are ready; the host and the DNS record
+are not.

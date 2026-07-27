@@ -8,8 +8,8 @@
   maintained but is not. Crawlers discount lastmod they cannot trust anyway.
 -->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://affordability-index.varadmore.me/</loc></url>
-  <url><loc>https://affordability-index.varadmore.me/states/</loc></url>
-  <url><loc>https://affordability-index.varadmore.me/timing/</loc></url>
-  <url><loc>https://affordability-index.varadmore.me/method/</loc></url>
+  <url><loc>{{ config.SITE_ORIGIN }}/</loc></url>
+  <url><loc>{{ config.SITE_ORIGIN }}/states/</loc></url>
+  <url><loc>{{ config.SITE_ORIGIN }}/timing/</loc></url>
+  <url><loc>{{ config.SITE_ORIGIN }}/method/</loc></url>
 </urlset>

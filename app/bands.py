@@ -33,6 +33,7 @@ and the Additional Medicare threshold, which have no closed form.
 """
 
 import math
+from functools import lru_cache
 from typing import NamedTuple, Optional, Tuple
 
 from .tax import TaxBreakdown, total_tax
@@ -154,6 +155,7 @@ def monthly_needs(rent: float, non_housing_monthly: float) -> float:
     return rent + non_housing_monthly
 
 
+@lru_cache(maxsize=8192)
 def gross_for_net(
     target_annual_net: Optional[float], state: str, local: Optional[str] = None
 ) -> Optional[float]:
@@ -165,6 +167,12 @@ def gross_for_net(
     — and it means one implementation covers every jurisdiction the engine knows.
 
     Returns None when the target is unreachable.
+
+    Cached because it is the most expensive thing in the codebase — roughly
+    sixty tax computations per call — and the By-state page runs one per county,
+    254 of them for Texas. The arguments are a float and two short strings, and
+    the result depends on nothing else, so the cache is exact rather than
+    approximate.
     """
     if target_annual_net is None or not (target_annual_net > 0):
         return 0.0

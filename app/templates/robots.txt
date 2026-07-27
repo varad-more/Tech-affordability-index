@@ -1,4 +1,4 @@
-# Affordability Index — https://affordability-index.varadmore.me/
+# Affordability Index — {{ config.SITE_ORIGIN }}/
 #
 # Everything here is public, computed data. Nothing is gated and nothing is
 # personal, so there is nothing to withhold from a crawler.
@@ -8,4 +8,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://affordability-index.varadmore.me/sitemap.xml
+Sitemap: {{ config.SITE_ORIGIN }}/sitemap.xml

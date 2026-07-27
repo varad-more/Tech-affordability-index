@@ -404,7 +404,7 @@
     <h2>The tax engine</h2>
     <p>
       Single filer, standard deduction, wage income only. The engine holds
-      <strong>no constants</strong>. Every figure lives in <code>src/tax-data.js</code>
+      <strong>no constants</strong>. Every figure lives in <code>app/tax_data.py</code>
       with the URL it came from, so rolling to a new tax year touches one file.
     </p>
     <ul>
@@ -793,24 +793,24 @@ index[m]  = mean of ratio[i] for every i falling in calendar month m
       <tbody>
         <tr>
           <td>The brackets, deductions and payroll rates are the current year's</td>
-          <td><a href="https://github.com/varad-more/affordability-index/blob/main/src/tax-data.js"><code>src/tax-data.js</code></a><br>
+          <td><a href="https://github.com/varad-more/affordability-index/blob/main/app/tax_data.py"><code>app/tax_data.py</code></a><br>
               Every constant carries the source it came from and the date it was read.</td>
         </tr>
         <tr>
           <td>Marginal tax is walked correctly, and take-home is what is left</td>
-          <td><a href="https://github.com/varad-more/affordability-index/blob/main/src/tax.js"><code>src/tax.js</code></a></td>
+          <td><a href="https://github.com/varad-more/affordability-index/blob/main/app/tax.py"><code>app/tax.py</code></a></td>
         </tr>
         <tr>
           <td>The three salary thresholds come out of the budgeting rules named above</td>
-          <td><a href="https://github.com/varad-more/affordability-index/blob/main/src/bands.js"><code>src/bands.js</code></a></td>
+          <td><a href="https://github.com/varad-more/affordability-index/blob/main/app/bands.py"><code>app/bands.py</code></a></td>
         </tr>
         <tr>
           <td>A state's figures are a real county's, never an invented average</td>
-          <td><a href="https://github.com/varad-more/affordability-index/blob/main/src/state-rollup.js"><code>src/state-rollup.js</code></a></td>
+          <td><a href="https://github.com/varad-more/affordability-index/blob/main/app/state_rollup.py"><code>app/state_rollup.py</code></a></td>
         </tr>
         <tr>
           <td>The seasonal index is a centred moving average with the trend removed</td>
-          <td><a href="https://github.com/varad-more/affordability-index/blob/main/src/seasonality.js"><code>src/seasonality.js</code></a></td>
+          <td><a href="https://github.com/varad-more/affordability-index/blob/main/app/seasonality.py"><code>app/seasonality.py</code></a></td>
         </tr>
         <tr>
           <td>Nothing is filled in when a source goes quiet</td>
@@ -819,7 +819,7 @@ index[m]  = mean of ratio[i] for every i falling in calendar month m
         </tr>
         <tr>
           <td>All of the above stays true</td>
-          <td><a href="https://github.com/varad-more/affordability-index/tree/main/test"><code>test/</code></a><br>
+          <td><a href="https://github.com/varad-more/affordability-index/tree/main/tests"><code>tests/</code></a> and <a href="https://github.com/varad-more/affordability-index/tree/main/test"><code>test/</code></a><br>
               144 assertions over the maths, the ingests and the claims on these pages.</td>
         </tr>
       </tbody>

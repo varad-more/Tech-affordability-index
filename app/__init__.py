@@ -8,10 +8,11 @@ are what the canonical tags, the sitemap and every relative link inside the
 pages already assume.
 """
 
+import gzip
 import os
 from pathlib import Path
 
-from flask import Flask, Response, render_template, send_from_directory
+from flask import Flask, Response, render_template, request, send_from_directory
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -63,13 +64,51 @@ def create_app(config=None) -> Flask:
     def data_file(name: str):
         return send_from_directory(DATA_DIR, name, max_age=3600)
 
+    # Rendered rather than served flat: both name the site's own origin, and a
+    # staging deploy that advertises production URLs is how a canonical tag ends
+    # up pointing somewhere the deploy does not control.
     @app.get("/robots.txt")
     def robots():
-        return send_from_directory(REPO_ROOT, "robots.txt")
+        return Response(render_template("robots.txt"), mimetype="text/plain")
 
     @app.get("/sitemap.xml")
     def sitemap():
-        return send_from_directory(REPO_ROOT, "sitemap.xml", mimetype="application/xml")
+        return Response(render_template("sitemap.xml"), mimetype="application/xml")
+
+    #: Below this, the CPU and the extra header cost more than the bytes saved.
+    COMPRESS_MIN_BYTES = 1024
+
+    @app.after_request
+    def compress(response: Response) -> Response:
+        """gzip JSON and HTML on the way out.
+
+        The snapshot endpoint is 178 KB of numbers and is fetched on every
+        salary change; gzipped it is 49 KB. Managed platforms often compress at
+        the edge, but not all do and not on every plan, so the application does
+        not assume it. Hand-rolled rather than adding a dependency for fifteen
+        lines.
+        """
+        if (
+            response.direct_passthrough
+            or response.status_code < 200
+            or response.status_code >= 300
+            or "Content-Encoding" in response.headers
+            or response.content_length is None
+            or response.content_length < COMPRESS_MIN_BYTES
+            or "gzip" not in request.headers.get("Accept-Encoding", "")
+        ):
+            return response
+
+        ctype = response.mimetype or ""
+        if not (ctype.startswith("text/") or ctype in ("application/json", "application/xml")):
+            return response
+
+        response.set_data(gzip.compress(response.get_data(), compresslevel=6))
+        response.headers["Content-Encoding"] = "gzip"
+        response.headers["Content-Length"] = response.content_length
+        # Caches must not hand a gzipped body to a client that did not ask.
+        response.headers.add("Vary", "Accept-Encoding")
+        return response
 
     @app.errorhandler(404)
     def not_found(_error):

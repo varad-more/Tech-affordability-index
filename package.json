@@ -1,14 +1,15 @@
 {
   "name": "affordability-index",
   "version": "1.0.0",
-  "description": "What salary you actually need to live in any US county, on current rent, cost-of-living and tax data.",
+  "description": "What salary you actually need to live in any US county, on current rent, cost-of-living and tax data. Flask application; the ingests are Node.",
   "type": "module",
   "private": true,
   "scripts": {
     "test": "node --test \"test/*.test.mjs\"",
+    "test:py": ".venv/bin/python -m pytest tests/ -q",
     "test:e2e": "playwright test",
-    "test:all": "npm test && npm run test:e2e",
-    "serve": "node scripts/serve.mjs",
+    "test:all": "npm run test:py && npm test && npm run test:e2e",
+    "serve": ".venv/bin/python -m flask --app wsgi run --port 4173 --debug",
     "fetch-rents": "node scripts/fetch-rents.mjs",
     "fetch-county-rents": "node scripts/fetch-county-rents.mjs",
     "fetch-acs-rents": "node scripts/fetch-acs-rents.mjs",

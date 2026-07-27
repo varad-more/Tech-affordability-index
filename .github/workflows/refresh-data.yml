@@ -39,8 +39,22 @@ jobs:
       - name: Rebuild rent history and seasonality
         run: node scripts/build-rent-history.mjs
 
+      # Both suites. The ingest tests check the shape of what landed; the engine
+      # tests check the claims the pages make against the data they now hold, so
+      # a refresh that breaks a sentence on the site fails here rather than
+      # shipping quietly. That is the whole point of running them on a refresh.
       - name: Verify the new data still passes
         run: node --test "test/*.test.mjs"
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Verify the engine still agrees with the new data
+        run: |
+          pip install -r requirements.txt -r requirements-dev.txt
+          python -m pytest tests/ -q
 
       - name: Commit if the data moved
         run: |

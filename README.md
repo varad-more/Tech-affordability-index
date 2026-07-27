@@ -75,33 +75,62 @@ never converts one into the other.
 
 ## Running it
 
-**Requires Node 22 or newer.** Nothing else: no Python, no database, no build
-step, no bundler. The deployed site is flat files and the browser runs the same
-JavaScript that is in this repository. Playwright is the only dependency, and it
-is used only by the browser tests.
+**A Flask application.** Every figure is computed in Python and fetched; the
+browser renders and does no arithmetic. No database — the datasets are committed
+JSON, loaded once at boot.
+
+**Requires Python 3.9+ and Node 22+.** Python runs the application. Node runs
+the ingests, which are build-time only and never execute in a request.
 
 ```bash
 git clone https://github.com/varad-more/affordability-index
 cd affordability-index
-npm install          # Playwright only; the site itself needs nothing
-npm run serve        # http://localhost:4173
+
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt -r requirements-dev.txt
+npm install                    # Playwright, for the browser tests
+
+npm run serve                  # http://localhost:4173
 ```
 
-ES modules and `fetch()` refuse to work over `file://`, so the pages need a real
-HTTP origin. `npm run serve` provides one and mirrors how GitHub Pages resolves
-directory indexes, which is what makes `/states/`, `/timing/` and `/method/`
-work without an `.html` on the end.
+### Why two languages
+
+The engine moved to Python; the ingests did not. They fetch, parse and commit
+the datasets on a schedule, they are already tested, and nothing they do happens
+inside a request. Rewriting working build-time code to make a language count
+tidier is not a reason.
+
+One consequence is named rather than hidden: `src/seasonality.js` and
+`app/seasonality.py` are the same decomposition in two languages, because the
+build script computes the index and the application prices it. They are pinned
+to each other by `tests/test_derived_parity.py`, which asserts the Python
+reproduces the JavaScript bit-for-bit on real committed series.
 
 ### Tests
 
 ```bash
-npm test             # 144 unit tests: tax engine, bands, projection, ingests, page claims
-npm run test:e2e     # 56 browser tests: asserts the charts actually drew
-npm run test:all     # both
+npm run test:py      # 165 engine tests: tax, bands, affordability, seasonality, rollups, parity
+npm test             #  59 ingest tests: projection, CSV parsing, dataset shape
+npm run test:e2e     #  56 browser tests: asserts the charts actually drew
+npm run test:all     # all three
 ```
 
-`npm run test:e2e` starts its own server if one is not already running. On a
-fresh clone Playwright needs its browser once: `npx playwright install chromium`.
+`npm run test:e2e` boots the Flask app itself if nothing is already listening.
+On a fresh clone Playwright needs its browser once:
+`npx playwright install chromium`.
+
+**Two fixtures pin the port.** `tests/fixtures/tax-parity.json` holds 2,067
+cases generated from the JavaScript engine immediately before it was deleted —
+every federal bracket edge and a dollar either side, the Social Security wage
+cap, the Additional Medicare threshold, all 51 states, both city taxes. All
+16,536 compared figures are bit-exact, so the assertion is equality rather than
+a tolerance: a tolerance would quietly absorb a real arithmetic change, which
+for a tax engine is the whole thing worth catching.
+
+`tests/fixtures/derived-parity.json` covers the layers with actual numerical
+behaviour — the bisection that inverts the tax engine, and the seasonal
+decomposition where an off-by-one in the centring shifts every month by half a
+year and still returns twelve plausible numbers.
 
 ## Refreshing the data
 
@@ -126,9 +155,10 @@ CI does on a schedule.
 Step 6 is **resumable**: it loads the existing file first and fetches only the
 counties missing from it, so a run interrupted at county 900 picks up at 900.
 
-After any refresh, run `npm test`. The unit suite includes ingest assertions and
-checks the claims the pages make against the data they now hold, so a refresh
-that breaks a sentence on the site fails the build rather than shipping quietly.
+After any refresh, run **both** unit suites — `npm test` and `npm run test:py`.
+The ingest suite checks the shape of what landed; the engine suite checks the
+claims the pages make against the data they now hold, so a refresh that breaks a
+sentence on the site fails the build rather than shipping quietly.
 
 ### Every ingest fails loudly
 
@@ -144,9 +174,11 @@ did before the rewrite, for its entire existence.
 
 Two GitHub Actions workflows, both in `.github/workflows`:
 
-- **`ci.yml`** runs the unit tests, then the browser tests, then deploys to
-  GitHub Pages. Deployment is gated on both suites passing, so a broken chart
-  cannot reach the live site.
+- **`ci.yml`** runs the engine tests, the ingest tests and the browser tests.
+  **It does not deploy.** The site ran on GitHub Pages until the Flask port, and
+  Pages serves static files only — it cannot run this. `render.yaml` and the
+  `Procfile` are ready for a Python host; wiring the job to one is the remaining
+  step. An unwired job beats a job that pretends to deploy.
 - **`refresh-data.yml`** runs the rent ingests weekly, re-runs the unit tests
   against the new figures, and commits only if the data actually moved. Zillow's
   monthly release date drifts, so polling weekly catches it without waiting an
@@ -156,17 +188,23 @@ The git history of `data/` **is** the freshness record. Every refresh is a dated
 diffable commit, which makes the claim that these numbers are current auditable
 rather than asserted.
 
-**Deploying your own:** enable GitHub Pages with **GitHub Actions** as the
-source, then either point `CNAME` at a hostname you control — with a DNS `CNAME`
-record for it aimed at `<your-user>.github.io` — or delete the file to be served
-from `<your-user>.github.io/<repo>/` instead. Nothing else is configured.
+**Deploying your own:** any host that runs a Python web process. `render.yaml`
+is a Render blueprint; the `Procfile` works on Render, Railway and anything
+Heroku-shaped. Both start the same command:
 
-One catch if you take the second route: the links on `404.html` are absolute,
-because GitHub Pages serves that file for a miss at *any* depth and a relative
-href there would resolve against whatever path the reader mistyped. Absolute
-paths are right at a domain root and wrong under a `/<repo>/` prefix, so they
-need the prefix adding by hand. Every other link on the site is relative and
-moves either way without edits.
+```
+gunicorn wsgi:app --bind 0.0.0.0:$PORT --workers 2 --threads 4
+```
+
+Set **`SITE_ORIGIN`** to the origin the deploy actually answers on. It is what
+the canonical tags, the Open Graph URLs, `robots.txt` and `sitemap.xml` are
+rendered from, and a staging deploy that inherits the production value will
+publish canonical tags pointing at a host it does not control.
+
+Two workers, four threads each. Each process holds about 2 MB of datasets and
+every request is CPU-light but never I/O-blocked — nothing here talks to a
+database or a third party — so threads are cheap and workers are what cost
+memory.
 
 Rolling to a new tax year means editing `src/tax-data.js` and nothing else.
 
@@ -214,34 +252,35 @@ every internal link resolving, and no horizontal overflow at three widths.
 ## Layout
 
 ```
-index.html            the tool
-states/               what a state costs, cheapest county to dearest
-timing/               when in the year a lease is cheapest
-method/               full methodology, sources and limitations
-404.html              self-contained; served for a miss at any depth
-CNAME                 the subdomain the site is served from
-robots.txt            crawl policy, and where the sitemap is
-sitemap.xml           the four canonical URLs, no invented lastmod
-assets/               rendering; charts.js and map.js are hand-rolled SVG, zero deps
-src/tax.js            tax engine (holds no constants)
-src/tax-data.js       every bracket and rate, each with its source
-src/bands.js          survival / getting by / comfortable, by inverting the tax engine
-src/state-rollup.js   a state's median, cheapest and dearest county, all real places
-src/projection.js     Albers USA, pinned to d3-geo by fixture
-src/seasonality.js    classical multiplicative decomposition
-scripts/              ingests; each fails loudly, none falls back
-data/                 committed, dated, diffable
-test/                 node --test
-e2e/                  playwright
+wsgi.py                 gunicorn entrypoint
+Procfile, render.yaml   deploy config for a Python host
+app/__init__.py         create_app(), the four page routes
+app/api.py              the JSON API the pages compute against
+app/datasets.py         the committed data, loaded once and indexed
+app/tax.py              tax engine (holds no constants)
+app/tax_data.py         every bracket and rate, each with its source
+app/bands.py            survival / getting by / comfortable, by inverting the tax engine
+app/affordability.py    rent against take-home, base salary only in the headline
+app/state_rollup.py     a state's median, cheapest and dearest county, all real places
+app/seasonality.py      classical multiplicative decomposition
+app/templates/          base.html plus one per page; robots.txt and sitemap.xml too
+assets/                 rendering only; charts.js and map.js are hand-rolled SVG, zero deps
+assets/engine.js        the client side of the API; holds no arithmetic
+src/                    build-time JavaScript: projection, CSV, hub list, MIT parser
+scripts/                ingests; each fails loudly, none falls back
+data/                   committed, dated, diffable
+tests/                  pytest — the engine
+test/                   node --test — the ingests
+e2e/                    playwright — the pages, against a live server
 ```
 
-Pages sit in directories so they serve at `/states/` rather than `/states.html`,
-and nothing answers at a `.html` address at all. Redirect stubs used to hold
-`/timing.html` and `/method.html` open, but the URLs they were forwarding
-belonged to the domain the site has since left — on this host they never
-existed, so the stubs preserved nothing and are gone. A test pins their absence,
-because the tempting fix for a stray `.html` link is to add the alias back
-rather than to correct the link.
+Routes are `/`, `/states/`, `/timing/` and `/method/`, and nothing answers at a
+`.html` address at all. A test pins that absence, because the tempting fix for a
+stray `.html` link is to add the alias back rather than to correct the link.
+
+The chrome — head, nav, footer — lives once, in `base.html`. It used to exist in
+four copies, which is why renaming the project took a 69-reference find-and-
+replace across four identical navs.
 
 The site is served from its own subdomain rather than as a project page under a
 portfolio's apex domain. That is what lets it own `/`, `robots.txt` and

@@ -26,7 +26,10 @@ export default defineConfig({
   // below check is computed by the Flask engine on the way out, so a suite run
   // against anything else would be testing a stand-in.
   webServer: {
-    command: `.venv/bin/python -m flask --app wsgi run --port ${PORT}`,
+    // The local venv when there is one, otherwise whatever python is on PATH —
+    // which is what CI provides. Hardcoding .venv/bin/python meant the suite
+    // could only ever run on a machine that had one.
+    command: `${process.env.FLASK_PYTHON ?? '.venv/bin/python'} -m flask --app wsgi run --port ${PORT}`,
     url: `http://localhost:${PORT}/api/meta`,
     reuseExistingServer: !process.env.CI,
     stdout: 'ignore',

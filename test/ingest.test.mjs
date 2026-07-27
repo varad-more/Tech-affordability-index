@@ -4,7 +4,6 @@ import { readFileSync, existsSync } from 'node:fs';
 
 import { parseCsvLine } from '../src/csv.js';
 import { HUBS } from '../src/hubs.js';
-import { STATES, LOCAL } from '../src/tax-data.js';
 
 describe('parseCsvLine', () => {
   test('keeps commas inside quoted fields together', () => {
@@ -44,17 +43,11 @@ describe('hub definitions', () => {
     assert.equal(new Set(ids).size, ids.length);
   });
 
-  test('every hub maps to a modelled state', () => {
-    for (const hub of HUBS) {
-      assert.ok(STATES[hub.state], `${hub.city} references unmodelled state ${hub.state}`);
-    }
-  });
-
-  test('every declared locality exists', () => {
-    for (const hub of HUBS.filter((h) => h.local)) {
-      assert.ok(LOCAL[hub.local], `${hub.city} references unknown locality ${hub.local}`);
-    }
-  });
+  // Whether every hub maps to a modelled state and a known locality is now
+  // asserted in tests/test_ingest_coverage.py: the tax tables moved to Python
+  // with the engine, and the check is stronger there anyway — it runs against
+  // data/rents.json, which is what the application actually reads, rather than
+  // against the source constant the ingest was written from.
 
   test('multi-state metros carry an explanatory note', () => {
     // Washington, DC spans three tax jurisdictions; the choice must be documented

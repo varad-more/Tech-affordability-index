@@ -12,7 +12,7 @@ trip.
 import math
 from typing import Any, Dict, Optional
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 
 from .affordability import (
     COST_BURDENED_THRESHOLD,
@@ -40,7 +40,19 @@ from .seasonality import (
 )
 from .state_rollup import roll_up_state, roll_up_states
 from .tax import total_tax
-from .tax_data import LOCAL, STATES, TAX_YEAR, UNMODELLED_LOCAL_TAX
+from .tax_data import (
+    ADDITIONAL_MEDICARE_RATE,
+    ADDITIONAL_MEDICARE_THRESHOLD,
+    FEDERAL_BRACKETS,
+    FEDERAL_STANDARD_DEDUCTION,
+    LOCAL,
+    MEDICARE_RATE,
+    SOCIAL_SECURITY_RATE,
+    SOCIAL_SECURITY_WAGE_BASE,
+    STATES,
+    TAX_YEAR,
+    UNMODELLED_LOCAL_TAX,
+)
 
 bp = Blueprint("api", __name__, url_prefix="/api")
 
@@ -132,7 +144,22 @@ def _as_json(value: Any) -> Any:
 def meta():
     """Everything the pages need to describe their own inputs."""
     return jsonify(
+        siteOrigin=current_app.config['SITE_ORIGIN'],
         taxYear=TAX_YEAR,
+        # The method page quotes these in prose, and prose is what goes stale.
+        # Exposing them lets the browser suite check the page against the engine
+        # rather than against a copy of the engine's numbers.
+        federal={
+            "standardDeduction": FEDERAL_STANDARD_DEDUCTION,
+            "brackets": [{"from": b.lower, "rate": b.rate} for b in FEDERAL_BRACKETS],
+        },
+        fica={
+            "socialSecurityRate": SOCIAL_SECURITY_RATE,
+            "socialSecurityWageBase": SOCIAL_SECURITY_WAGE_BASE,
+            "medicareRate": MEDICARE_RATE,
+            "additionalMedicareRate": ADDITIONAL_MEDICARE_RATE,
+            "additionalMedicareThreshold": ADDITIONAL_MEDICARE_THRESHOLD,
+        },
         bases=list(BASES),
         categoryOrder=list(CATEGORY_ORDER),
         categoryLabels=CATEGORY_LABELS,

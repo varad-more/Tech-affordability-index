@@ -12,8 +12,9 @@ whichever request first happens to touch it.
 """
 
 import json
+from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional, Tuple
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
@@ -119,11 +120,20 @@ class Datasets:
         entry = self.living_wage_by_fips.get(fips)
         return entry["nonHousingMonthly"] if entry else None
 
-    def priced_counties(self, basis: str, unit: str = "all") -> List[Dict[str, Any]]:
+    @lru_cache(maxsize=16)
+    def priced_counties(self, basis: str, unit: str = "all") -> Tuple[Dict[str, Any], ...]:
         """Every county with both a rent figure and a non-housing figure.
 
         A county missing either cannot be assessed at all, and is left out here
         rather than defaulted — the pages draw those in a no-data fill.
+
+        Cached: the result depends only on committed data, and rebuilding a
+        3,123-entry list on every request was most of what the snapshot endpoint
+        was doing. Ten combinations exist (two bases x five unit sizes), so the
+        cache is bounded by construction.
+
+        Returns a tuple to make the shared, cached nature obvious at the call
+        site. The dicts inside are shared too — read them, do not edit them.
         """
         out = []
         for fips, county in self.counties_by_fips.items():
@@ -141,7 +151,7 @@ class Datasets:
                     "needs": rent + non_housing,
                 }
             )
-        return out
+        return tuple(out)
 
 
 #: Process-wide singleton. Import this, not the class.
