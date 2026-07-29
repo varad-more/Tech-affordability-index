@@ -237,8 +237,17 @@ export function timeSeries(mount, points, { valueFormat = money } = {}) {
  *
  * @param {Array<{ label: string, value: number, tooltip?: string }>} bars
  *        values are signed fractions, e.g. -0.019 for 1.9% below average
+ * @param {object} opts
+ * @param {Function} [opts.format] how a bar prints its own value
+ * @param {number[]} [opts.highlight] indices to keep at full opacity
+ * @param {string} [opts.label] accessible name; the default describes the
+ *   seasonal chart this was written for, which is not the only caller any more
  */
-export function divergingBars(mount, bars, { format = (v) => pct(v, 1), highlight } = {}) {
+export function divergingBars(mount, bars, {
+  format = (v) => pct(v, 1),
+  highlight,
+  label = 'Rent by calendar month, as a deviation from the annual average',
+} = {}) {
   clearMount(mount);
 
   const W = frameWidth(mount);
@@ -265,7 +274,7 @@ export function divergingBars(mount, bars, { format = (v) => pct(v, 1), highligh
     width: W,
     height: H,
     role: 'img',
-    'aria-label': 'Rent by calendar month, as a deviation from the annual average',
+    'aria-label': label,
   });
 
   // Zero line: the reference the whole chart is read against.

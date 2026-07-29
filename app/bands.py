@@ -30,12 +30,17 @@ Salaries are solved by inverting the tax engine numerically rather than
 algebraically, so the bands stay correct for every state, bracket, payroll levy
 and city tax automatically — including the kinks at the Social Security wage cap
 and the Additional Medicare threshold, which have no closed form.
+
+The same machinery answers the relocation question — *what is this salary worth
+somewhere else?* — because an equivalent salary is one of these solves at the
+share you already have rather than at one of the three named standards. See
+:func:`equivalent_salary`.
 """
 
 import math
 from typing import NamedTuple, Optional, Tuple
 
-from .net_curve import invert, net_curve
+from .net_curve import invert, liability, net_curve
 from .tax import TaxBreakdown, total_tax
 
 
@@ -139,6 +144,42 @@ class Assessment(NamedTuple):
     band: Band
 
 
+class Place(NamedTuple):
+    """One county, as everything in this module needs to see it.
+
+    Exists because :func:`equivalent_salary` takes two of them, and eight
+    positional floats and strings at a call site is how an origin and a
+    destination get silently swapped.
+    """
+
+    rent: float
+    non_housing_monthly: float
+    state: str
+    local: Optional[str] = None
+
+
+class Equivalence(NamedTuple):
+    """What one salary is worth somewhere else, on both readings.
+
+    Both are reported because neither is the whole answer, and a page that
+    quoted one without the other would be picking a side of a real argument
+    without saying so.
+    """
+
+    salary: float
+    #: Monthly, where the salary is earned now.
+    from_monthly_net: float
+    from_monthly_needs: float
+    from_needs_share: Optional[float]
+    from_monthly_surplus: float
+    #: Monthly cost of necessities at the destination.
+    to_monthly_needs: float
+    #: Necessities keep the same share of take-home. The headline.
+    same_share: Optional[float]
+    #: The same dollars survive each month after necessities.
+    same_surplus: Optional[float]
+
+
 def needs_share_step(share: Optional[float]) -> Optional[int]:
     """Which class a needs-share falls in: 0 (easiest) to 6 (hardest)."""
     if share is None or not math.isfinite(share):
@@ -203,6 +244,81 @@ def salary_bands(
         survival=salary_at_share(1.0),
         getting_by=salary_at_share(0.7),
         comfortable=salary_at_share(0.5),
+    )
+
+
+def equivalent_salary(salary: float, origin: Place, destination: Place) -> Equivalence:
+    """What ``salary`` in ``origin`` is worth in ``destination``.
+
+    The relocation question — "I earn this in Austin; what is the same life worth
+    in San Francisco?" — turns out to need no new tax code at all. It is
+    :func:`salary_bands` solved at the share you already have rather than at one
+    of the three named standards, so it inherits the exact inverse, every payroll
+    levy and both city taxes for free.
+
+    Two answers, because there are two honest readings of "the same life" and
+    they diverge by tens of thousands of dollars:
+
+    ``same_share``
+        Necessities keep the same fraction of take-home. This is the headline,
+        and it is the only reading consistent with the rest of the site: the
+        map's class breaks, the four bands and every verdict all cut on
+        needs-share. It assumes discretionary spending scales with the
+        destination, which overstates the raise for a high earner whose savings
+        do not care what rent costs.
+    ``same_surplus``
+        The same dollars survive each month. It assumes *none* of your
+        discretionary spending is local, which understates the raise for anyone
+        who eats out where they live.
+
+    Real life sits between them, and where two counties cost alike they collapse
+    together — which is itself worth seeing.
+
+    Take-home comes from :func:`app.net_curve.liability` rather than
+    :func:`app.tax.total_tax` for the reason :mod:`app.affordability` gives at
+    length: the browser can only evaluate the published curve, so pinning this to
+    the curve keeps the parity test exact instead of forcing a tolerance into it.
+
+    A salary that yields no take-home has no standard of living to hold constant,
+    so both readings are ``None`` rather than zero — "there is no equivalent" and
+    "the equivalent is nothing" are different sentences.
+    """
+    monthly_net = liability(salary, origin.state, origin.local).net / 12
+    needs_here = monthly_needs(origin.rent, origin.non_housing_monthly)
+    needs_there = monthly_needs(destination.rent, destination.non_housing_monthly)
+
+    if not (monthly_net > 0):
+        return Equivalence(
+            salary=salary,
+            from_monthly_net=monthly_net,
+            from_monthly_needs=needs_here,
+            from_needs_share=None,
+            from_monthly_surplus=monthly_net - needs_here,
+            to_monthly_needs=needs_there,
+            same_share=None,
+            same_surplus=None,
+        )
+
+    share = needs_here / monthly_net
+    surplus = monthly_net - needs_here
+
+    # A destination cheap enough that even earning nothing there beats being
+    # short here lands on a non-positive target, and `gross_for_net` answers 0.
+    # That is the right answer rather than an edge case to trap: no salary is
+    # required to be at least this well off.
+    return Equivalence(
+        salary=salary,
+        from_monthly_net=monthly_net,
+        from_monthly_needs=needs_here,
+        from_needs_share=share,
+        from_monthly_surplus=surplus,
+        to_monthly_needs=needs_there,
+        same_share=gross_for_net(
+            needs_there * 12 / share, destination.state, destination.local
+        ),
+        same_surplus=gross_for_net(
+            (surplus + needs_there) * 12, destination.state, destination.local
+        ),
     )
 
 

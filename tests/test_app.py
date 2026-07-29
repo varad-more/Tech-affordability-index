@@ -18,7 +18,7 @@ import pytest
 
 from app import create_app
 
-PAGES = ["/", "/states/", "/timing/", "/method/"]
+PAGES = ["/", "/states/", "/compare/", "/timing/", "/method/"]
 
 
 @pytest.fixture(scope="module")

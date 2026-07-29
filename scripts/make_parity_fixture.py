@@ -34,7 +34,9 @@ from app.affordability import affordability, burden_level  # noqa: E402
 from app.bands import (  # noqa: E402
     BANDS,
     NEEDS_SHARE_BREAKS,
+    Place,
     classify,
+    equivalent_salary,
     gross_for_net,
     needs_share_step,
     salary_bands,
@@ -79,6 +81,7 @@ def build() -> dict:
         "steps": _step_cases(),
         "classify": _classify_cases(),
         "salaryBands": _salary_band_cases(),
+        "equivalence": _equivalence_cases(),
         "rank": _rank_cases(),
     }
 
@@ -184,6 +187,66 @@ def _salary_band_cases():
                     "comfortable": ladder.comfortable,
                 }
             )
+    return out
+
+
+def _place(fips, basis):
+    """One county as :class:`app.bands.Place`, or None where it cannot be priced."""
+    rent = data.rent_for(fips, basis, "all")
+    non_housing = data.non_housing_for(fips)
+    if rent is None or non_housing is None:
+        return None
+    return Place(rent, non_housing, data.counties_by_fips[fips]["st"], local_for(fips))
+
+
+def _equivalence_cases():
+    """The relocation solve, in both directions between every fixture county.
+
+    Every ordered pair rather than a hand-picked few, because the interesting
+    failures are asymmetric: a bug in the destination's jurisdiction shows up
+    moving *to* New York City and not moving away from it. The identity pairs
+    are in deliberately — moving nowhere must return the salary that was typed,
+    and that is the cheapest possible check that the inverse really is one.
+
+    Salary 0 is included because it has no take-home and therefore no standard of
+    living to hold constant; both readings are null, and the browser has to reach
+    the same conclusion rather than rendering a zero.
+    """
+    out = []
+    for basis in ("zori", "acs"):
+        for from_fips in COUNTIES:
+            origin = _place(from_fips, basis)
+            if origin is None:
+                continue
+            for to_fips in COUNTIES:
+                destination = _place(to_fips, basis)
+                if destination is None:
+                    continue
+                for salary in (0, 38_000, 130_000, 200_000, 420_000):
+                    result = equivalent_salary(salary, origin, destination)
+                    out.append(
+                        {
+                            "basis": basis,
+                            "from": from_fips,
+                            "to": to_fips,
+                            "salary": salary,
+                            "fromRent": origin.rent,
+                            "fromNonHousingMonthly": origin.non_housing_monthly,
+                            "fromState": origin.state,
+                            "fromLocal": origin.local,
+                            "toRent": destination.rent,
+                            "toNonHousingMonthly": destination.non_housing_monthly,
+                            "toState": destination.state,
+                            "toLocal": destination.local,
+                            "fromMonthlyNet": result.from_monthly_net,
+                            "fromMonthlyNeeds": result.from_monthly_needs,
+                            "fromNeedsShare": result.from_needs_share,
+                            "fromMonthlySurplus": result.from_monthly_surplus,
+                            "toMonthlyNeeds": result.to_monthly_needs,
+                            "sameShare": result.same_share,
+                            "sameSurplus": result.same_surplus,
+                        }
+                    )
     return out
 
 

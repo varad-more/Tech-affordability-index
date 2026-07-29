@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Four pages, listed at their canonical clean URLs.
+  Five pages, listed at their canonical clean URLs.
 
   Deliberately no <lastmod>. A hand-written date here would be wrong within a
   week of the next data refresh and there is nothing that would catch it, which
@@ -10,6 +10,7 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>{{ config.SITE_ORIGIN }}/</loc></url>
   <url><loc>{{ config.SITE_ORIGIN }}/states/</loc></url>
+  <url><loc>{{ config.SITE_ORIGIN }}/compare/</loc></url>
   <url><loc>{{ config.SITE_ORIGIN }}/timing/</loc></url>
   <url><loc>{{ config.SITE_ORIGIN }}/method/</loc></url>
 </urlset>

@@ -500,7 +500,7 @@ test.describe('affordability index', () => {
   test('no page ever scrolls horizontally', async ({ page }) => {
     // Every page, at three widths. The nav is the usual culprit: it has no
     // scroll container of its own, so adding a link can silently widen the page.
-    for (const path of ['/', '/states/', '/timing/', '/method/']) {
+    for (const path of ['/', '/states/', '/compare/', '/timing/', '/method/']) {
       for (const width of [1280, 768, 390]) {
         await page.setViewportSize({ width, height: 900 });
         await page.goto(path);
@@ -997,7 +997,7 @@ test.describe('affordability index', () => {
         return out;
       });
 
-    for (const path of ['/', '/states/', '/timing/', '/method/']) {
+    for (const path of ['/', '/states/', '/compare/', '/timing/', '/method/']) {
       await page.goto(path);
       await expect(page.locator('#loading')).toBeHidden({ timeout: 30_000 });
       await page.evaluate(() => {
@@ -1016,7 +1016,7 @@ test.describe('affordability index', () => {
   });
 
   test('every page ends with the same footer, and it names its sources', async ({ page }) => {
-    for (const path of ['/', '/states/', '/timing/', '/method/']) {
+    for (const path of ['/', '/states/', '/compare/', '/timing/', '/method/']) {
       await page.goto(path);
       const footer = page.locator('.site-footer');
       await expect(footer, `no site footer on ${path}`).toBeVisible();
@@ -1272,7 +1272,7 @@ test.describe('affordability index', () => {
     // someone adding a control, so both are asserted rather than eyeballed.
     await page.setViewportSize({ width: 390, height: 780 });
 
-    for (const path of ['/', '/states/', '/timing/', '/method/']) {
+    for (const path of ['/', '/states/', '/compare/', '/timing/', '/method/']) {
       await page.goto(path);
       await expect(page.locator('#loading')).toBeHidden({ timeout: 30_000 });
 
@@ -1399,6 +1399,185 @@ test.describe('affordability index', () => {
     expect(errors).toEqual([]);
   });
 
+  /** The compare page, loaded and painted. Both pickers hold a real county. */
+  async function comparing(page) {
+    await page.goto('/compare/');
+    await expect(page.locator('#map .map-county').first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('#map')).toHaveAttribute('data-painted', 'true', { timeout: 30_000 });
+    await expect(page.locator('#compare-stats .stat')).toHaveCount(4);
+  }
+
+  const dollars = (text) => Number(text.replace(/[^0-9.]/g, ''));
+
+  test('the compare page answers with a salary, in both readings', async ({ page }) => {
+    const errors = watchForErrors(page);
+    await comparing(page);
+
+    // The verdict names both counties and both salaries, so the answer survives
+    // being screenshotted out of context.
+    const verdict = page.locator('#verdict .verdict-text');
+    await expect(verdict).toContainText('Travis County');
+    await expect(verdict).toContainText('San Francisco County');
+    await expect(verdict).toContainText('$130,000');
+
+    // San Francisco is dearer and taxed harder, so the equivalent has to exceed
+    // what is earned today. Anything else means the solve ran backwards.
+    const headline = dollars(await page.locator('#compare-stats .stat').first().locator('.value').innerText());
+    expect(headline).toBeGreaterThan(130_000);
+
+    // Both readings are always published, and the note has to say they differ
+    // rather than leaving the reader to notice two numbers and pick one.
+    const surplusReading = dollars(
+      await page.locator('#compare-stats .stat').nth(2).locator('.value').innerText(),
+    );
+    expect(surplusReading).toBeGreaterThan(130_000);
+    expect(surplusReading).not.toBe(headline);
+    await expect(page.locator('#reading-note')).toContainText(/apart|same salary/);
+
+    expect(errors).toEqual([]);
+  });
+
+  test('moving nowhere costs nothing', async ({ page }) => {
+    // The identity that makes the whole solve trustworthy, asserted through the
+    // interface rather than through the engine: pick the same county twice and
+    // the page must hand back the salary that was typed.
+    await comparing(page);
+
+    await page.locator('#to-county').fill('Travis County, TX');
+    await page.locator('#to-county').dispatchEvent('change');
+
+    const headline = page.locator('#compare-stats .stat').first().locator('.value');
+    await expect(headline).toHaveText('$130,000');
+    await expect(page.locator('#verdict .verdict-chip')).toHaveText('Break-even');
+  });
+
+  test('swapping the counties inverts the answer', async ({ page }) => {
+    await comparing(page);
+
+    const chip = page.locator('#verdict .verdict-chip');
+    await expect(chip).toContainText('Needs');
+
+    await page.locator('#swap').click();
+
+    // The move is now the cheap direction, so the page has to concede a cut
+    // rather than demand a raise, and the two counties must have changed places.
+    await expect(chip).toContainText('Could take');
+    await expect(page.locator('#from-county')).toHaveValue('San Francisco County, CA');
+    await expect(page.locator('#to-county')).toHaveValue('Travis County, TX');
+
+    const headline = dollars(await page.locator('#compare-stats .stat').first().locator('.value').innerText());
+    expect(headline).toBeLessThan(130_000);
+  });
+
+  test('the difference chart sums to what the naive move costs', async ({ page }) => {
+    // The identity the caption claims. At a fixed salary the only things that can
+    // move your surplus are tax and the cost of the place, so the bars have to
+    // account for the whole change — a chart that merely looked plausible would
+    // be the easy thing to ship here.
+    await comparing(page);
+    await settled(page, '#delta');
+
+    // `textContent`, not `innerText`: these are SVG <text> nodes, which have no
+    // innerText and would come back as a list of undefined.
+    const bars = await page
+      .locator('#delta .div-bar .value-label')
+      .evaluateAll((nodes) => nodes.map((n) => n.textContent));
+    expect(bars.length).toBeGreaterThanOrEqual(3);
+
+    const signedDollars = (t) => (t.trim().startsWith('−') ? -1 : 1) * dollars(t);
+    const total = bars.reduce((sum, t) => sum + signedDollars(t), 0);
+
+    // Read the same figure off the table: today's surplus against the naive
+    // move's. They are rounded for display, so this compares to the dollar.
+    const cells = (row) =>
+      page.locator('#compare-table tbody tr').filter({ hasText: row }).locator('td');
+    const before = signedDollars(await cells('Left over').nth(1).innerText());
+    const after = signedDollars(await cells('Left over').nth(2).innerText());
+
+    expect(Math.abs(total - (before - after))).toBeLessThanOrEqual(2);
+    await expect(page.locator('#delta-caption')).toContainText('a month');
+  });
+
+  test('the map prices the whole country and is a picker for the destination', async ({ page }) => {
+    const errors = watchForErrors(page);
+    await comparing(page);
+
+    // Shading has to span the ramp: one flat colour would mean the class breaks
+    // are wrong, not that the country is uniform.
+    const fills = await page.locator('#map .map-county').evaluateAll((nodes) =>
+      nodes.map((n) => n.getAttribute('fill')),
+    );
+    expect(fills).toHaveLength(COUNTY_COUNT);
+    expect(new Set(fills.filter((f) => !f.includes('nodata'))).size).toBeGreaterThan(4);
+
+    // Colour is the only encoding, so the legend must say what it means and name
+    // the salary it is measured against.
+    await expect(page.locator('#map-legend .map-legend-caption')).toContainText('$130,000');
+
+    // The table alternative carries both extremes.
+    await page.locator('.table-view summary').last().click();
+    expect(await page.locator('#map-table tbody tr').count()).toBeGreaterThan(20);
+
+    // Clicking a county moves the destination, not the origin: where you already
+    // are is not something anyone discovers by browsing.
+    await page.locator('#map .map-county[data-fips="53033"]').click({ force: true });
+    await expect(page.locator('#to-county')).toHaveValue('King County, WA');
+    await expect(page.locator('#from-county')).toHaveValue('Travis County, TX');
+
+    expect(errors).toEqual([]);
+  });
+
+  test('a county with no rent on the chosen basis says so rather than blanking', async ({ page }) => {
+    await comparing(page);
+
+    // Zillow indexes about a third of counties, so switching basis is the
+    // reliable way to reach the missing-data path. Abbeville is one of the 1,772
+    // counties Census prices and Zillow does not, so it is offerable in the
+    // picker and unpriceable once selected — which is the case worth drawing.
+    await page.locator('#rent-basis').selectOption('zori');
+    await page.locator('#to-county').fill('Abbeville County, SC');
+    await page.locator('#to-county').dispatchEvent('change');
+
+    await expect(page.locator('#verdict .verdict-chip')).toHaveText('No data');
+    await expect(page.locator('#verdict .verdict-text')).toContainText('Zillow ZORI');
+    await expect(page.locator('#compare-stats .stat')).toHaveCount(0);
+  });
+
+  test('the worked example on the method page is the one the page computes', async ({ page }) => {
+    // The method page quotes four salaries to show how far the two readings can
+    // diverge. Prose is what goes stale, and this project has already shipped a
+    // method page describing an implementation it no longer had. So the figures
+    // are read back off the page that produces them rather than trusted.
+    await comparing(page);
+
+    const headline = () => page.locator('#compare-stats .stat').first().locator('.value').innerText();
+    const surplus = () =>
+      page.locator('#compare-stats .stat').nth(2).locator('.value').innerText();
+
+    const quoted = { 130_000: [], 250_000: [] };
+    for (const salary of [130_000, 250_000]) {
+      await page.locator('#salary').fill(String(salary));
+      // The verdict has to catch up with the new salary before it is read.
+      await expect(page.locator('#verdict .verdict-text')).toContainText(
+        salary.toLocaleString('en-US'),
+      );
+      quoted[salary] = [await headline(), await surplus()];
+    }
+
+    await page.goto('/method/');
+    const prose = await page.locator('#equivalence').innerText();
+
+    for (const [salary, figures] of Object.entries(quoted)) {
+      for (const figure of figures) {
+        expect(
+          prose,
+          `${figure} is the page's answer at $${Number(salary).toLocaleString('en-US')}, ` +
+            `but the method page does not quote it`,
+        ).toContain(figure);
+      }
+    }
+  });
+
   test('every internal link on every page resolves', async ({ page }) => {
     // The clean-URL move rewrote every href by hand. A typo in one of them is
     // invisible until someone clicks it, and looks exactly like a working site.
@@ -1408,7 +1587,7 @@ test.describe('affordability index', () => {
     // relative href there would resolve against whatever the reader mistyped.
     // Absolute paths are only correct while the site is served from a domain
     // root, which is exactly the assumption worth pinning.
-    for (const path of ['/', '/states/', '/timing/', '/method/', '/404.html']) {
+    for (const path of ['/', '/states/', '/compare/', '/timing/', '/method/', '/404.html']) {
       await page.goto(path);
 
       const links = await page.locator('a[href]').evaluateAll((nodes) =>
@@ -1449,6 +1628,7 @@ test.describe('affordability index', () => {
     const pages = [
       ['/', ''],
       ['/states/', 'states/'],
+      ['/compare/', 'compare/'],
       ['/timing/', 'timing/'],
       ['/method/', 'method/'],
     ];

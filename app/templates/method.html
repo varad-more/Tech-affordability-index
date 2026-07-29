@@ -19,6 +19,7 @@
     <a href="#question">The question</a>
     <a href="#sources">Data sources</a>
     <a href="#bands">The band model</a>
+    <a href="#equivalence">Comparing counties</a>
     <a href="#math">The math</a>
     <a href="#tax">The tax engine</a>
     <a href="#map">The map</a>
@@ -191,20 +192,29 @@
       </tbody>
     </table>
 
-    <h3>Why the thresholds are solved numerically</h3>
+    <h3>Why the thresholds can be solved exactly</h3>
     <p>
       Going from "I need $4,600 a month after tax" back to a gross salary has no clean
       algebraic answer. Take-home is piecewise-linear in gross, with kinks at every
       federal and state bracket edge, at the Social Security wage cap, and at the
-      Additional Medicare threshold. It is, however, <em>strictly increasing</em>, which
-      is all bisection needs.
+      Additional Medicare threshold. It is, however, <em>strictly increasing</em>, and
+      every one of those kinks is a known constant rather than something that has to be
+      discovered.
     </p>
     <p>
-      So <code>grossForNet()</code> bisects the tax engine to the cent. One implementation
-      then covers every state, every bracket and both modelled city taxes automatically,
-      and it stays correct when the tax year rolls. The test suite pins this by
-      round-tripping salaries forward and back, including deliberately at the wage cap
-      where a closed-form shortcut would go wrong.
+      That makes the inverse exact rather than approximate: between two adjacent kinks
+      the function genuinely is a straight line, so <code>gross_for_net()</code> is a
+      binary search over a couple of dozen knots followed by one interpolation. It used
+      to bisect the tax engine itself, roughly sixty evaluations per call, stopping once
+      the interval was under a cent.
+    </p>
+    <p>
+      Being exact matters more here than being fast. The browser has to solve the same
+      ladder against the same published curve, and two bisections tuned to different
+      tolerances would disagree in the pennies while both looked right. Exact inverses
+      on both sides agree to the last bit, which is a property a test can actually
+      assert, and the suite does: salaries are round-tripped forward and back, including
+      deliberately at the wage cap where a naive closed form would go wrong.
     </p>
 
     <h3>Why the map is not simply painted with those four bands</h3>
@@ -220,6 +230,95 @@
       breaks. The top three breaks are exactly the named standards (50%, 70%, 100%), so
       the map and the written verdict can never disagree; the lower breaks subdivide the
       crowded comfortable end where the real variation lives.
+    </p>
+  </section>
+
+  <section id="equivalence">
+    <h2>What a salary is worth somewhere else</h2>
+    <p>
+      The Compare page asks the relocation question: earning some salary in county
+      <math><mi>a</mi></math>, what would you have to earn in county <math><mi>b</mi></math>
+      to be no worse off? It introduces no new tax code and no new constant. It is the
+      threshold solve above, run at the share you already have rather than at one of the
+      three named standards.
+    </p>
+    <p>
+      Writing <math><msub><mi>n</mi><mi>a</mi></msub></math> and
+      <math><msub><mi>n</mi><mi>b</mi></msub></math> for the monthly cost of necessities in
+      each county, and <math><msub><mi>G</mi><mi>a</mi></msub></math> for annual take-home
+      under county <math><mi>a</mi></math>'s tax jurisdiction, a salary
+      <math><mi>g</mi></math> fixes a share:
+    </p>
+    <math display="block" class="eq">
+      <msub><mi>σ</mi><mi>a</mi></msub><mo>=</mo>
+      <mfrac>
+        <mrow><mn>12</mn><msub><mi>n</mi><mi>a</mi></msub></mrow>
+        <mrow><msub><mi>G</mi><mi>a</mi></msub><mo>(</mo><mi>g</mi><mo>)</mo></mrow>
+      </mfrac>
+    </math>
+    <p>
+      That share is the quantity the whole site cuts on, so carrying it across the move is
+      the reading the Compare page leads with. There is a second, equally defensible one:
+      carrying the <em>surplus</em>, the dollars left after necessities are paid.
+    </p>
+    <math display="block" class="eq">
+      <msub><mi>E</mi><mtext>share</mtext></msub><mo>=</mo>
+      <msubsup><mi>G</mi><mi>b</mi><mrow><mo>−</mo><mn>1</mn></mrow></msubsup>
+      <mrow><mo>(</mo>
+        <mfrac>
+          <mrow><mn>12</mn><msub><mi>n</mi><mi>b</mi></msub></mrow>
+          <msub><mi>σ</mi><mi>a</mi></msub>
+        </mfrac>
+      <mo>)</mo></mrow>
+      <mspace width="2.5em"/>
+      <msub><mi>E</mi><mtext>surplus</mtext></msub><mo>=</mo>
+      <msubsup><mi>G</mi><mi>b</mi><mrow><mo>−</mo><mn>1</mn></mrow></msubsup>
+      <mrow><mo>(</mo>
+        <msub><mi>G</mi><mi>a</mi></msub><mo>(</mo><mi>g</mi><mo>)</mo>
+        <mo>+</mo><mn>12</mn>
+        <mo>(</mo><msub><mi>n</mi><mi>b</mi></msub><mo>−</mo><msub><mi>n</mi><mi>a</mi></msub><mo>)</mo>
+      <mo>)</mo></mrow>
+    </math>
+    <p>
+      Both are exact for the same reason the thresholds are: <math><msub><mi>G</mi><mi>b</mi></msub></math>
+      is the destination's own published curve, kinks and city tax included, so the answer
+      accounts for the fact that a move changes the tax jurisdiction as well as the rent.
+      Setting <math><mi>b</mi><mo>=</mo><mi>a</mi></math> returns <math><mi>g</mi></math>,
+      which is the cheapest available check that the inverse really is one, and the test
+      suite asserts it in both languages.
+    </p>
+
+    <h3>Why both readings are published, and neither is averaged away</h3>
+    <p>
+      They disagree, and the disagreement grows with income. On the Compare page's own
+      defaults, Census rents for a one-bedroom, $130,000 in Travis County, Texas is
+      $207,358 in San Francisco County on the share reading and $173,125 on the surplus
+      reading. At $250,000 the same move is $419,780 against $320,999.
+    </p>
+    <p>
+      The gap is not error, it is a real modelling choice. Holding the <em>share</em>
+      constant scales the whole paycheque with the cost of living, which assumes your
+      discretionary spending is bought locally: it overstates the raise for someone whose
+      surplus goes into index funds, since a brokerage account does not cost more in San
+      Francisco. Holding the <em>surplus</em> constant covers only the difference in
+      necessities, which assumes none of your spending is local: it understates the raise
+      for anyone who eats out, drives, or pays for childcare where they live.
+    </p>
+    <p>
+      Nothing in the data says how much of a given reader's spending is which, so the site
+      does not pick, and it does not average two numbers into a third that describes
+      nobody. It publishes both and says what each assumes. Where two counties cost alike
+      the pair converges on its own, which is the honest signal that the choice did not
+      matter for that move.
+    </p>
+
+    <h3>What the equivalence deliberately ignores</h3>
+    <p>
+      It is the steady state after a move, not the move. There is no relocation cost, no
+      lease break, no month of double rent, and no part-year state filing. It also says
+      nothing about whether the destination pays that salary: compensation is the input
+      the reader supplies, and the site models what a place costs, never what a job there
+      offers.
     </p>
   </section>
 
@@ -380,11 +479,12 @@
       <mo>{</mo><mn>1.0</mn><mo>,</mo><mn>0.7</mn><mo>,</mo><mn>0.5</mn><mo>}</mo>
     </math>
     <p>
-      <math><msup><mi>G</mi><mrow><mo>−</mo><mn>1</mn></mrow></msup></math> has no closed
-      form, because <math><mi>G</mi></math> is piecewise-linear with kinks at every bracket
-      edge, the wage cap and the Additional Medicare threshold, so it is evaluated by bisection,
-      as described above. The three values of <math><mi>s</mi></math> are the survival,
-      getting-by and comfortable lines.
+      <math><msup><mi>G</mi><mrow><mo>−</mo><mn>1</mn></mrow></msup></math> is evaluated
+      exactly. <math><mi>G</mi></math> is piecewise-linear with kinks at every bracket edge,
+      the wage cap and the Additional Medicare threshold, and every one of those kinks is a
+      known constant, so inverting it is a binary search over the knots followed by a single
+      interpolation, as described above. The three values of <math><mi>s</mi></math> are the
+      survival, getting-by and comfortable lines.
     </p>
 
     <h3>Why the tax function has to be progressive</h3>

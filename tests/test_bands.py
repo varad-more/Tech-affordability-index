@@ -14,8 +14,10 @@ import pytest
 
 from app.bands import (
     BANDS,
+    Place,
     assess,
     classify,
+    equivalent_salary,
     gross_for_net,
     monthly_needs,
     salary_bands,
@@ -173,6 +175,118 @@ class TestAssess:
         assert assess(ladder.comfortable, self.RENT, self.NON_HOUSING, "CA").band.id == (
             "comfortable"
         )
+
+
+class TestEquivalentSalary:
+    """The relocation solve: what one salary is worth somewhere else.
+
+    It carries no tax code of its own — it is :func:`salary_bands` solved at the
+    share you already have — so what is worth testing is that the identity holds,
+    that it is reversible, and that the two readings disagree in the direction
+    the docstring claims.
+    """
+
+    #: Austin-ish and San Francisco-ish, chosen so the destination is both
+    #: dearer AND in a state with income tax. Both differences matter.
+    CHEAP = Place(1_550, 2_100, "TX")
+    DEAR = Place(3_100, 2_600, "CA")
+
+    @pytest.mark.parametrize("salary", [45_000, 130_000, 250_000, 900_000])
+    @pytest.mark.parametrize("place", ["CHEAP", "DEAR"])
+    def test_moving_nowhere_returns_the_salary_you_typed(self, salary, place):
+        """The cheapest possible check that the inverse is genuinely one."""
+        here = getattr(self, place)
+        result = equivalent_salary(salary, here, here)
+        assert result.same_share == pytest.approx(salary, abs=TOL)
+        assert result.same_surplus == pytest.approx(salary, abs=TOL)
+
+    @pytest.mark.parametrize("salary", [60_000, 130_000, 400_000])
+    def test_the_move_reverses(self, salary):
+        there = equivalent_salary(salary, self.CHEAP, self.DEAR).same_share
+        back = equivalent_salary(there, self.DEAR, self.CHEAP).same_share
+        assert back == pytest.approx(salary, abs=TOL)
+
+    def test_a_dearer_destination_demands_a_raise(self):
+        result = equivalent_salary(130_000, self.CHEAP, self.DEAR)
+        assert result.same_share > 130_000
+        assert result.same_surplus > 130_000
+
+    def test_a_cheaper_destination_allows_a_cut(self):
+        result = equivalent_salary(130_000, self.DEAR, self.CHEAP)
+        assert result.same_share < 130_000
+        assert result.same_surplus < 130_000
+
+    def test_holding_the_share_demands_more_than_holding_the_surplus(self):
+        """The whole reason both are published.
+
+        Moving somewhere dearer, same-share scales the entire paycheque with the
+        cost of living while same-surplus only covers the difference — so the
+        two bracket the honest answer rather than agreeing.
+        """
+        result = equivalent_salary(250_000, self.CHEAP, self.DEAR)
+        assert result.same_share > result.same_surplus
+
+    def test_the_two_readings_converge_when_the_places_cost_alike(self):
+        twin = Place(self.CHEAP.rent, self.CHEAP.non_housing_monthly, "CA")
+        result = equivalent_salary(130_000, self.CHEAP, twin)
+        # Not equal — the tax jurisdictions still differ — but far closer than
+        # the several-tens-of-thousands gap a real move produces.
+        assert abs(result.same_share - result.same_surplus) < 2_000
+
+    def test_the_share_is_carried_across_the_move(self):
+        result = equivalent_salary(130_000, self.CHEAP, self.DEAR)
+        landed = assess(
+            result.same_share, self.DEAR.rent, self.DEAR.non_housing_monthly, "CA"
+        )
+        assert landed.needs_share == pytest.approx(result.from_needs_share, abs=1e-4)
+
+    def test_the_surplus_is_carried_across_the_move(self):
+        result = equivalent_salary(130_000, self.CHEAP, self.DEAR)
+        landed = assess(
+            result.same_surplus, self.DEAR.rent, self.DEAR.non_housing_monthly, "CA"
+        )
+        assert landed.monthly_surplus == pytest.approx(
+            result.from_monthly_surplus, abs=TOL
+        )
+
+    def test_city_tax_at_the_destination_raises_the_bar(self):
+        plain = Place(3_000, 2_400, "NY")
+        with_city = Place(3_000, 2_400, "NY", "NYC")
+        assert (
+            equivalent_salary(130_000, self.CHEAP, with_city).same_share
+            > equivalent_salary(130_000, self.CHEAP, plain).same_share
+        )
+
+    def test_a_salary_with_no_take_home_has_no_equivalent(self):
+        """Null, not nought.
+
+        "There is no equivalent" and "the equivalent is nothing" are different
+        sentences, and the page prints different things for them.
+        """
+        result = equivalent_salary(0, self.CHEAP, self.DEAR)
+        assert result.from_needs_share is None
+        assert result.same_share is None and result.same_surplus is None
+
+    def test_an_unaffordable_origin_still_produces_an_answer(self):
+        """Necessities already exceed take-home: an equivalence between two
+        shortfalls is computable, and saying so beats refusing to answer."""
+        result = equivalent_salary(28_000, self.CHEAP, self.DEAR)
+        assert result.from_needs_share > 1
+        assert result.same_share > 0
+
+    def test_a_destination_cheap_enough_needs_no_salary_at_all(self):
+        """Short every month where you are, moving somewhere nearly free: no
+        salary is required to be at least as well off, and 0 says that."""
+        free = Place(1.0, 1.0, "TX")
+        assert equivalent_salary(28_000, self.DEAR, free).same_surplus == 0
+
+    def test_is_monotonic_in_what_the_destination_costs(self):
+        previous = 0.0
+        for rent in range(1_000, 6_001, 250):
+            destination = Place(rent, 2_400, "CA")
+            value = equivalent_salary(130_000, self.CHEAP, destination).same_share
+            assert value > previous, "fell at rent {}".format(rent)
+            previous = value
 
 
 class TestCoverageOfTheCommittedCountyData:

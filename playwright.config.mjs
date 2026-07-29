@@ -1,6 +1,10 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const PORT = 4173;
+// Overridable because 4173 is a popular default — Vite preview uses it too — and
+// a neighbouring project holding the port makes this suite fail in a way that
+// looks like a bug in the site: every request answers 200 with someone else's
+// index.html, so modules arrive as text/html and the browser refuses to run them.
+const PORT = Number(process.env.PLAYWRIGHT_PORT ?? 4173);
 
 export default defineConfig({
   testDir: './e2e',

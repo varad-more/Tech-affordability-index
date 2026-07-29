@@ -28,6 +28,7 @@ DOMAIN = "frozen.example"
 PAGES = {
     "index.html": "/",
     "states/index.html": "/states/",
+    "compare/index.html": "/compare/",
     "timing/index.html": "/timing/",
     "method/index.html": "/method/",
 }

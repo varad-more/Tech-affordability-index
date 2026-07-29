@@ -249,6 +249,75 @@ export function salaryBands(rent, nonHousingMonthly, stateCode, local = null) {
 /** Which modelled city tax applies in a county, if any. */
 export const localFor = (fips) => META.localByFips[fips] ?? null;
 
+// --- the relocation solve -------------------------------------------------
+//
+// "I earn this here; what is the same life worth there?" needs no tax code of
+// its own — it is `salaryBands` solved at the share you already have rather than
+// at one of the three named standards. Mirrors app/bands.py:equivalent_salary
+// operation for operation, for the reason given above `interpolate`.
+//
+// Split into two halves so the map cannot disagree with the headline. The origin
+// is evaluated once and the destination once per county, which is what makes
+// shading 3,000 counties cheap; more importantly it means the number under the
+// cursor and the number in the verdict come from the same expression rather than
+// from two that were written to match.
+
+/** What the reader's life currently looks like, in monthly terms. */
+function standing(salary, origin) {
+  const monthlyNet = liability(salary, origin.state, origin.local).net / 12;
+  const monthlyNeeds = origin.rent + origin.nonHousingMonthly;
+  return {
+    salary,
+    monthlyNet,
+    monthlyNeeds,
+    // No take-home, no standard of living to hold constant.
+    needsShare: monthlyNet > 0 ? monthlyNeeds / monthlyNet : null,
+    monthlySurplus: monthlyNet - monthlyNeeds,
+  };
+}
+
+/**
+ * The two salaries that reproduce a standing somewhere else.
+ *
+ * `sameShare` keeps necessities at the same fraction of take-home and is the
+ * headline, because it is what the rest of the site cuts on. `sameSurplus`
+ * keeps the same dollars alive each month. They bracket the honest answer:
+ * the first assumes discretionary spending scales with the destination, the
+ * second that none of it does.
+ */
+function matchIn(here, destination) {
+  const toMonthlyNeeds = destination.rent + destination.nonHousingMonthly;
+  if (here.needsShare === null) return { toMonthlyNeeds, sameShare: null, sameSurplus: null };
+
+  return {
+    toMonthlyNeeds,
+    sameShare: grossForNet(
+      (toMonthlyNeeds * 12) / here.needsShare, destination.state, destination.local,
+    ),
+    // A destination cheap enough that even earning nothing there beats being
+    // short here lands on a non-positive target, and `grossForNet` answers 0.
+    // That is the right answer, not an edge case: no salary is required.
+    sameSurplus: grossForNet(
+      (here.monthlySurplus + toMonthlyNeeds) * 12, destination.state, destination.local,
+    ),
+  };
+}
+
+/** What `salary` in `origin` is worth in `destination`. Places are
+ *  `{rent, nonHousingMonthly, state, local}`. */
+export function equivalentSalary(salary, origin, destination) {
+  const here = standing(salary, origin);
+  const there = matchIn(here, destination);
+  return {
+    salary,
+    fromMonthlyNet: here.monthlyNet,
+    fromMonthlyNeeds: here.monthlyNeeds,
+    fromNeedsShare: here.needsShare,
+    fromMonthlySurplus: here.monthlySurplus,
+    ...there,
+  };
+}
+
 // --- boot and page state -------------------------------------------------
 
 /**
@@ -494,6 +563,97 @@ export async function stateDetail(code, salary, basis = 'zori', unit = 'all') {
     bands: salaryBands(median.rent, median.nonHousingMonthly, code),
     counties,
     unmodelledLocalTax: META.unmodelledLocalTax[code],
+  };
+}
+
+/** A county assessment, in the shape the equivalence solve takes. */
+const placeOf = (assessment) => ({
+  rent: assessment.rent,
+  nonHousingMonthly: assessment.nonHousingMonthly,
+  state: assessment.state,
+  local: assessment.local,
+});
+
+/**
+ * Two counties, one salary, and what it would take to stay whole.
+ *
+ * Three assessments rather than two, because the middle one is the point. `from`
+ * is where the reader is; `toAtSameSalary` is the naive move, keeping the same
+ * number on the offer letter; `to` is the same county at the salary that
+ * actually preserves their standing. The gap between the last two is the whole
+ * argument the page is making.
+ *
+ * Built by calling `assessCounty` three times rather than by recomputing the
+ * pieces, so a county reads identically here and on the Explore page.
+ */
+export async function comparePair(fromFips, toFips, salary, basis = 'zori', unit = 'all') {
+  const [from, toAtSameSalary] = await Promise.all([
+    assessCounty(fromFips, salary, basis, unit),
+    assessCounty(toFips, salary, basis, unit),
+  ]);
+
+  // Either end unpriced on this basis means there is no comparison to draw. The
+  // page says which end and why, so it stays an answer rather than a blank.
+  if (!from.available || !toAtSameSalary.available) {
+    return { basis, unit, salary, available: false, from, to: toAtSameSalary };
+  }
+
+  const equivalence = equivalentSalary(salary, placeOf(from), placeOf(toAtSameSalary));
+
+  // Null only when the salary yields no take-home, so there is no standard of
+  // living to carry across and nothing to assess at the other end.
+  const to =
+    equivalence.sameShare === null
+      ? null
+      : await assessCounty(toFips, equivalence.sameShare, basis, unit);
+
+  return { basis, unit, salary, available: true, from, toAtSameSalary, to, equivalence };
+}
+
+/**
+ * The same solve against every county in the country at once.
+ *
+ * The origin is evaluated once and only the destination varies, which is what
+ * makes 3,000 answers cheap — and, more importantly, is why the map cannot
+ * disagree with the headline: both go through `matchIn`, so a county shaded here
+ * and named in the verdict is the same number, not two that were written to
+ * match.
+ *
+ * Both readings are kept per county even though only one drives the shading, so
+ * the tooltip can quote the pair without a second pass.
+ */
+export async function equivalentEverywhere(fromFips, salary, basis = 'zori', unit = 'all') {
+  const file = await json(bundleUrl(countiesFile(basis, unit)));
+
+  const priced = file.counties[fromFips];
+  if (!priced) return { available: false, salary, basis, unit, salaries: {} };
+
+  const [rent, nonHousing] = priced;
+  const here = standing(salary, {
+    rent,
+    nonHousingMonthly: nonHousing,
+    state: places[fromFips][1],
+    local: localFor(fromFips),
+  });
+
+  const salaries = {};
+  if (here.needsShare !== null) {
+    for (const [fips, [destRent, destNonHousing]] of Object.entries(file.counties)) {
+      const { sameShare, sameSurplus } = matchIn(here, {
+        rent: destRent,
+        nonHousingMonthly: destNonHousing,
+        state: places[fips][1],
+        local: localFor(fips),
+      });
+      salaries[fips] = { sameShare, sameSurplus };
+    }
+  }
+
+  return {
+    available: here.needsShare !== null,
+    salary, basis, unit,
+    standing: here,
+    salaries,
   };
 }
 

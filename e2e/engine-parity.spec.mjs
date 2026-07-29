@@ -152,6 +152,85 @@ test.describe('engine parity with Python', () => {
     expect(mismatches).toEqual([]);
   });
 
+  test('the relocation solve matches in both directions between every pair', async ({ page }) => {
+    // The Compare page's whole output. Both readings are checked, and so are the
+    // intermediates behind them: a share that drifts would move the headline
+    // without moving anything else, which is the hardest version to spot.
+    //
+    // The identity pairs matter most. Moving nowhere has to return the salary
+    // that was typed, so any asymmetry between the forward evaluation and the
+    // inverse shows up here as a number that is merely close.
+    const mismatches = await page.evaluate((cases) => {
+      const out = [];
+      for (const want of cases) {
+        const got = window.__engine.equivalentSalary(
+          want.salary,
+          {
+            rent: want.fromRent,
+            nonHousingMonthly: want.fromNonHousingMonthly,
+            state: want.fromState,
+            local: want.fromLocal,
+          },
+          {
+            rent: want.toRent,
+            nonHousingMonthly: want.toNonHousingMonthly,
+            state: want.toState,
+            local: want.toLocal,
+          },
+        );
+        for (const key of [
+          'fromMonthlyNet', 'fromMonthlyNeeds', 'fromNeedsShare',
+          'fromMonthlySurplus', 'toMonthlyNeeds', 'sameShare', 'sameSurplus',
+        ]) {
+          if (got[key] !== want[key]) {
+            out.push(
+              `${want.basis} ${want.from}->${want.to} @ ${want.salary} ${key}: ` +
+                `python ${want[key]} browser ${got[key]}`,
+            );
+          }
+        }
+      }
+      return out;
+    }, FIXTURE.equivalence);
+
+    expect(
+      mismatches.slice(0, 10),
+      `${mismatches.length} of ${FIXTURE.equivalence.length} cases drifted`,
+    ).toEqual([]);
+  });
+
+  test('the national map agrees with the headline county for county', async ({ page }) => {
+    // Two code paths reach the same answer — one solves a pair, the other solves
+    // 3,000 at once off a single origin — and a page that shaded a county one way
+    // while naming another number in the verdict would be indefensible. They
+    // share `matchIn` precisely so this holds; this proves it still does.
+    const drift = await page.evaluate(async () => {
+      const engine = window.__engine;
+      const from = '48453'; // Travis County, TX
+      const salary = 130_000;
+      const everywhere = await engine.equivalentEverywhere(from, salary, 'acs', 'all');
+
+      const out = [];
+      for (const to of ['06075', '36061', '53033', '42101', '01001', '11001', from]) {
+        const pair = await engine.comparePair(from, to, salary, 'acs', 'all');
+        if (!pair.available) {
+          out.push(`${to}: pair unavailable`);
+          continue;
+        }
+        const mapped = everywhere.salaries[to];
+        if (mapped.sameShare !== pair.equivalence.sameShare) {
+          out.push(`${to}: map ${mapped.sameShare} verdict ${pair.equivalence.sameShare}`);
+        }
+        if (mapped.sameSurplus !== pair.equivalence.sameSurplus) {
+          out.push(`${to}: map ${mapped.sameSurplus} verdict ${pair.equivalence.sameSurplus}`);
+        }
+      }
+      return out;
+    });
+
+    expect(drift).toEqual([]);
+  });
+
   test('every offer ranks every hub the way Python does', async ({ page }) => {
     // The compensation model is the one derivation whose inputs are editable on
     // the page, so the browser has to compute it rather than read a precomputed
@@ -203,7 +282,7 @@ test.describe('engine parity with Python', () => {
     // back in two languages and this file is the only thing that would notice.
     const sources = await page.evaluate(async () => {
       const names = [
-        'engine.js', 'app.js', 'states.js', 'timing.js', 'method.js',
+        'engine.js', 'app.js', 'states.js', 'compare.js', 'timing.js', 'method.js',
         'charts.js', 'map.js', 'county-picker.js', 'combobox.js', 'data.js',
         'footer.js', 'theme.js',
       ];

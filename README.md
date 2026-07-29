@@ -1,6 +1,6 @@
 # Affordability Index
 
-### → **[Live site](https://affordability-index.varadmore.me/)** · **[By state](https://affordability-index.varadmore.me/states/)** · **[When to move](https://affordability-index.varadmore.me/timing/)** · **[Method](https://affordability-index.varadmore.me/method/)**
+### → **[Live site](https://affordability-index.varadmore.me/)** · **[By state](https://affordability-index.varadmore.me/states/)** · **[Compare](https://affordability-index.varadmore.me/compare/)** · **[When to move](https://affordability-index.varadmore.me/timing/)** · **[Method](https://affordability-index.varadmore.me/method/)**
 
 **What salary does a place actually need, and does your offer clear it?**
 
@@ -71,6 +71,7 @@ never converts one into the other.
 | **Heatmap** | How do all 21 hubs compare across every reference offer at once? |
 | **Small multiples** | How does it change over four years as equity vests? |
 | **By state** | What does this state cost, from its cheapest county to its dearest? |
+| **Compare** | I earn this here. What would I have to earn there to be no worse off? |
 | **Seasonality** | Which month is a lease cheapest to sign here, and is the swing worth planning around? |
 
 ## Running it
@@ -123,9 +124,39 @@ tax rule is not piecewise linear.
 The small amount of arithmetic that did move to the browser — interpolate,
 divide, compare against thresholds Python published — is proved rather than
 reviewed, the same way the original port was. `scripts/make_parity_fixture.py`
-writes down what Python answers for 1,284 cases; the browser suite makes the
+writes down what Python answers for 1,774 cases; the browser suite makes the
 deployed JavaScript answer the same ones. The comparison is exact, to the last
 bit, and both ends are pinned so neither can be edited into agreement.
+
+### Comparing two counties without new tax code
+
+The Compare page answers "I earn this here, what is it worth there?", and it was
+worth building mostly because of how little it needed. An equivalent salary is
+the existing threshold solve run at the share you already have rather than at one
+of the three named standards:
+
+```python
+share = needs_here / monthly_net            # what your money is doing today
+equivalent = gross_for_net(needs_there * 12 / share, state_there, local_there)
+```
+
+No new bracket, no new inversion, no new constant. It inherits the exact inverse,
+so setting the destination equal to the origin returns the salary that was typed,
+and the test suite asserts that in both languages.
+
+**Two readings are published and neither is chosen.** Holding the *share*
+constant scales the whole paycheque with the cost of living; holding the
+*surplus* constant covers only the difference in necessities. They diverge by
+tens of thousands of dollars and the gap widens with income, because the first
+assumes your discretionary spending is bought locally and the second assumes none
+of it is. Nothing in the data says which is true for a given reader, so the site
+shows both, says what each assumes, and does not average them into a third number
+that describes nobody.
+
+The same solve runs against all ~3,100 counties for the map. It goes through the
+same function as the headline rather than a parallel copy, which is what makes it
+impossible for the county under the cursor to disagree with the county in the
+verdict — and a browser test asserts exactly that.
 
 ### Why two languages
 
@@ -143,9 +174,9 @@ reproduces the JavaScript bit-for-bit on real committed series.
 ### Tests
 
 ```bash
-npm run test:py      # 460 engine tests: tax, curves, bands, bundle, freeze, parity
+npm run test:py      # 488 engine tests: tax, curves, bands, bundle, freeze, parity
 npm test             #  59 ingest tests: projection, CSV parsing, dataset shape
-npm run test:e2e     #  63 browser tests: the charts drew, and the maths agrees
+npm run test:e2e     #  72 browser tests: the charts drew, and the maths agrees
 npm run test:all     # all three
 ```
 
@@ -296,12 +327,12 @@ every internal link resolving, and no horizontal overflow at three widths.
 ## Layout
 
 ```
-app/__init__.py         create_app(), the four page routes, the bundle routes
+app/__init__.py         create_app(), the five page routes, the bundle routes
 app/datasets.py         the committed data, loaded once and indexed
 app/tax.py              tax engine (holds no constants)
 app/tax_data.py         every bracket and rate, each with its source
 app/net_curve.py        the engine as knot points the browser can evaluate exactly
-app/bands.py            survival / getting by / comfortable, by inverting the curve
+app/bands.py            survival / getting by / comfortable, and the relocation solve
 app/affordability.py    rent against take-home, base salary only in the headline
 app/state_rollup.py     a state's median, cheapest and dearest county, all real places
 app/seasonality.py      classical multiplicative decomposition
@@ -320,7 +351,7 @@ test/                   node --test — the ingests
 e2e/                    playwright — the pages, against a live server
 ```
 
-Routes are `/`, `/states/`, `/timing/` and `/method/`, and nothing answers at a
+Routes are `/`, `/states/`, `/compare/`, `/timing/` and `/method/`, and nothing answers at a
 `.html` address at all. A test pins that absence, because the tempting fix for a
 stray `.html` link is to add the alias back rather than to correct the link.
 

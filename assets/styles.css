@@ -1501,6 +1501,94 @@ svg text { font-family: var(--font); }
   }
 }
 
+/* ---- compare page: two counties and the swap between them ---- */
+
+/* A grid rather than three flex children, because the middle column has to be
+   exactly as wide as the button and the two sides have to stay equal. Below the
+   breakpoint it collapses to one column, which puts the swap on its own row
+   between the two sides — still in reading order, still pointing at the pair it
+   exchanges. */
+.compare-sides {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px 18px;
+  margin-bottom: 20px;
+}
+
+@media (min-width: 800px) {
+  .compare-sides { grid-template-columns: 1fr auto 1fr; align-items: start; }
+  /* Centred against the whole side rather than offset by a measured number of
+     pixels: the fields above it differ in height between the two rent bases. */
+  .compare-swap { align-self: center; }
+}
+
+.compare-side {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
+.side-label {
+  /* 12px is the floor the phone test holds every page to, and 0.74rem — the size
+     the other small caps labels use — lands at 11.84px. Those get away with it
+     only because they are painted after the check reads the page; this one is in
+     the markup, so it has to be honest. */
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+  margin: 0;
+}
+
+.compare-swap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.swap-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--ink-2);
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 120ms, border-color 120ms, transform 120ms;
+}
+
+.swap-btn:hover {
+  color: var(--ink-1);
+  border-color: var(--axis);
+  /* The arrows read as an exchange; turning them makes the press feel like one. */
+  transform: rotate(180deg);
+}
+
+.swap-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* A second figure inside a stat tile — the percentage beside the dollar change.
+   Deliberately not a second tile: it is the same fact in another unit. */
+.stat .value-sub {
+  font-family: var(--font-sans);
+  font-size: 0.92rem;
+  font-weight: 500;
+  color: var(--ink-muted);
+  letter-spacing: 0;
+}
+
+/* Which salary a comparison column is priced at, under the county's name. The
+   two destination columns are the same place, so the header alone cannot tell
+   them apart. */
+.th-sub {
+  display: block;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--ink-muted);
+}
+
 /* A chart with one row per county or per state is a table's worth of rows, and
    a state page holding two of them would be several screens of scrolling before
    the reader reached anything else. Capping the height and letting the grid
@@ -1635,6 +1723,8 @@ tfoot td { border-bottom: none; padding-top: 10px; }
 #tooltip.on { opacity: 1; }
 #tooltip .t-title { font-weight: 600; margin-bottom: 3px; }
 #tooltip .t-row { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+/* The secondary reading inside a tooltip that carries two. */
+#tooltip .t-muted { color: var(--ink-muted); }
 
 /* ---- table ---- */
 
@@ -1971,7 +2061,10 @@ math { font-size: 1.05em; }
 table.facts th math { font-size: 1.1em; }
 
 table.facts.wide th { width: auto; }
-table.facts thead th { color: var(--ink-muted); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.04em; }
+/* 0.78rem rather than the 0.74rem the other small caps use: at a 16px root that
+   is 12.48px against 11.84px, and 12px is the floor no text on a phone may go
+   under. This is a real header a reader has to parse, not a decorative label. */
+table.facts thead th { color: var(--ink-muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; }
 
 .colophon { font-size: 0.78rem; color: var(--ink-muted); margin-top: 18px; }
 footer.notes .colophon a { color: var(--ink-2); }

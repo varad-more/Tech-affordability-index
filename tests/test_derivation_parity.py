@@ -51,12 +51,41 @@ def test_the_fixture_covers_what_it_claims(committed):
     assert len(committed["steps"]) > 30
     assert len(committed["classify"]) > 25
     assert len(committed["salaryBands"]) >= 10
+    assert len(committed["equivalence"]) > 400
     assert len(committed["rank"]) > 100
+
+
+def test_the_equivalence_cases_cover_both_directions_and_the_identity(committed):
+    """The three properties that make the section worth having.
+
+    Every ordered pair means a destination-side bug cannot hide behind the
+    origin, and the identity pairs are the cheapest check that the inverse is
+    genuinely one — move nowhere, get the salary back.
+    """
+    cases = committed["equivalence"]
+    pairs = {(c["basis"], c["from"], c["to"]) for c in cases}
+
+    identity = [c for c in cases if c["from"] == c["to"] and c["salary"] > 0]
+    assert identity, "no identity pairs — the round-trip check is not being made"
+    for case in identity:
+        assert case["sameShare"] == pytest.approx(case["salary"])
+        assert case["sameSurplus"] == pytest.approx(case["salary"])
+
+    for basis, a, b in list(pairs):
+        assert (basis, b, a) in pairs, "{}: {} -> {} has no reverse".format(basis, a, b)
+
+    # No take-home, no standard of living to hold constant. Null rather than nought.
+    for case in cases:
+        if case["salary"] == 0:
+            assert case["sameShare"] is None and case["sameSurplus"] is None
 
 
 @pytest.mark.parametrize(
     "section",
-    ["liability", "grossForNet", "steps", "classify", "salaryBands", "rank"],
+    [
+        "liability", "grossForNet", "steps", "classify",
+        "salaryBands", "equivalence", "rank",
+    ],
 )
 def test_the_committed_fixture_still_matches_python(committed, current, section):
     """Exact, not approximate.

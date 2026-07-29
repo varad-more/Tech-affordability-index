@@ -15,9 +15,10 @@ lose.
 
 Routes match the URLs the site has always served — ``/``, ``/states/``,
 ``/timing/``, ``/method/`` — so neither the move to Flask nor the move back to
-static files changed a single address. The trailing slashes are load-bearing:
-they are what the canonical tags, the sitemap and every relative link inside the
-pages already assume, and what makes each page a directory once frozen.
+static files changed a single address; ``/compare/`` was added later and follows
+the same shape. The trailing slashes are load-bearing: they are what the
+canonical tags, the sitemap and every relative link inside the pages already
+assume, and what makes each page a directory once frozen.
 """
 
 import gzip
@@ -75,6 +76,10 @@ def create_app(config=None) -> Flask:
     @app.get("/states/")
     def states():
         return render_template("states.html", page="states", canonical="states/")
+
+    @app.get("/compare/")
+    def compare():
+        return render_template("compare.html", page="compare", canonical="compare/")
 
     @app.get("/timing/")
     def timing():

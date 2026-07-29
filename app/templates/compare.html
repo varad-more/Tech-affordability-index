@@ -1,0 +1,225 @@
+{% extends 'base.html' %}
+{% block title %}Compare two counties · Affordability Index{% endblock %}
+{% block description %}What a salary in one US county is worth in another, solved against take-home pay from current rent and current-year tax law in both places.{% endblock %}
+
+{% block content %}
+  <header class="hero">
+    <p class="eyebrow">Compare counties · <span id="tax-year-badge"></span> tax law</p>
+    <h1>The same money is<br>not the same money.</h1>
+    <p class="tagline">
+      A relocation is two changes at once: what the place costs, and what the state takes
+      before you see it. Quote one salary against another and you have compared neither.
+      This page solves the question people actually have: <strong>what would I have
+      to earn there to be no worse off than I am here?</strong>
+    </p>
+    <div class="freshness" id="freshness"></div>
+  </header>
+
+  <div id="loading" class="loading">
+    <span class="spinner" aria-hidden="true"></span> Loading county data…
+  </div>
+
+  <main id="app" hidden>
+
+  <section class="panel">
+    <p class="eyebrow step">Step one</p>
+    <h2>The move</h2>
+    <p class="sub">
+      Both counties are priced on the same measure of rent. The site never converts one
+      rent basis into the other, so a county with no figure on the basis you pick is
+      shown as having none rather than being filled in from the other.
+    </p>
+
+    <div class="compare-sides">
+      <div class="compare-side">
+        <p class="side-label">Where you are now</p>
+
+        <div class="field">
+          <label for="from-state">State</label>
+          <div class="select-wrap">
+            <select id="from-state"></select>
+          </div>
+          <div class="hint" id="from-state-hint"></div>
+        </div>
+
+        <div class="field field-county">
+          <label for="from-county">County</label>
+          <div class="combo">
+            <input id="from-county" type="text" role="combobox"
+                   aria-expanded="false" aria-controls="from-listbox"
+                   aria-autocomplete="list" aria-haspopup="listbox"
+                   autocomplete="off" autocapitalize="off" autocorrect="off"
+                   spellcheck="false" placeholder="Search counties…">
+            <button type="button" id="from-toggle" class="combo-toggle"
+                    tabindex="-1" aria-label="Show the county list"></button>
+            <ul id="from-listbox" class="combo-list" role="listbox"
+                aria-label="Counties you could be moving from" hidden></ul>
+          </div>
+          <div class="hint" id="from-hint"></div>
+          <p id="from-status" class="sr-only" role="status" aria-live="polite"></p>
+        </div>
+      </div>
+
+      <div class="compare-swap">
+        <button type="button" id="swap" class="swap-btn"
+                aria-label="Swap the two counties">
+          <span aria-hidden="true">⇄</span>
+        </button>
+      </div>
+
+      <div class="compare-side">
+        <p class="side-label">Where you are going</p>
+
+        <div class="field">
+          <label for="to-state">State</label>
+          <div class="select-wrap">
+            <select id="to-state"></select>
+          </div>
+          <div class="hint" id="to-state-hint"></div>
+        </div>
+
+        <div class="field field-county">
+          <label for="to-county">County</label>
+          <div class="combo">
+            <input id="to-county" type="text" role="combobox"
+                   aria-expanded="false" aria-controls="to-listbox"
+                   aria-autocomplete="list" aria-haspopup="listbox"
+                   autocomplete="off" autocapitalize="off" autocorrect="off"
+                   spellcheck="false" placeholder="Search counties…">
+            <button type="button" id="to-toggle" class="combo-toggle"
+                    tabindex="-1" aria-label="Show the county list"></button>
+            <ul id="to-listbox" class="combo-list" role="listbox"
+                aria-label="Counties you could be moving to" hidden></ul>
+          </div>
+          <div class="hint" id="to-hint"></div>
+          <p id="to-status" class="sr-only" role="status" aria-live="polite"></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="picker-row picker-row-three">
+      <div class="field money">
+        <label for="salary">What you earn now</label>
+        <span class="input-wrap">
+          <span class="adorn" aria-hidden="true">$</span>
+          <input id="salary" type="number" min="0" step="1000" inputmode="numeric" value="130000">
+        </span>
+        <div class="hint">Base salary, before tax</div>
+      </div>
+
+      <div class="field">
+        <label for="unit-size">Unit size</label>
+        <div class="select-wrap">
+          <select id="unit-size"></select>
+        </div>
+        <div class="hint" id="unit-size-hint"></div>
+      </div>
+
+      <div class="field">
+        <label for="rent-basis">Rent measured by</label>
+        <div class="select-wrap">
+          <select id="rent-basis">
+            <option value="acs">Census ACS</option>
+            <option value="zori">Zillow ZORI</option>
+          </select>
+        </div>
+        <div class="hint" id="rent-basis-hint"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow step">Step two</p>
+    <h2>What it takes to stay level</h2>
+    <p class="sub">
+      The headline holds your <strong>needs share</strong> constant: the fraction of
+      take-home pay that rent and necessities consume. That is the measure every other
+      page on this site cuts on, so the answer here and the shading on the map mean the
+      same thing.
+    </p>
+
+    <div class="verdict" id="verdict"></div>
+    <div class="stats" id="compare-stats"></div>
+
+    <p class="callout" id="reading-note"></p>
+    <p class="callout warn" id="local-tax-warning" hidden></p>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow step">Step three</p>
+    <h2>Where the difference actually is</h2>
+    <p class="sub" id="delta-intro"></p>
+
+    <div class="chart-scroll"><div id="delta"></div></div>
+    <p class="sub" id="delta-caption" style="margin-top:12px"></p>
+
+    <div class="subsection">
+      <h3>The two counties side by side</h3>
+      <p class="sub">
+        The left column is you today. The middle is the naive move: same number on
+        the offer letter, new place. The right is the salary that actually holds your
+        position.
+      </p>
+      <div class="chart-scroll"><table class="facts wide" id="compare-table"></table></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <p class="eyebrow step">Step four</p>
+    <h2>Everywhere else, at once</h2>
+    <p class="sub" id="map-intro"></p>
+
+    <div id="map"></div>
+    <div id="map-legend"></div>
+    <p class="sub" id="map-caption" style="margin-top:12px"></p>
+
+    <details class="table-view">
+      <summary>The counties at each extreme, as a table</summary>
+      <div class="chart-scroll"><table id="map-table"></table></div>
+    </details>
+  </section>
+
+  </main>
+
+  <footer class="notes">
+    <h2>What an equivalent salary is not</h2>
+    <ul>
+      <li>
+        <strong>There is no single right answer, and this page shows two.</strong> Holding
+        your <em>needs share</em> constant assumes your discretionary spending scales with
+        the destination, which overstates the raise for someone whose savings do not care
+        what rent costs. Holding your <em>surplus</em> constant assumes none of it does,
+        which understates it for anyone who eats where they live. The honest answer is
+        between them, and both are printed above rather than one being chosen for you.
+      </li>
+      <li>
+        <strong>Necessities are a subsistence budget.</strong> Everything except rent is
+        MIT's county-level figure for a single adult with no children: no savings, no
+        travel, no meals out. Two counties can share a needs figure and feel nothing alike.
+      </li>
+      <li>
+        <strong>Moving costs nothing here.</strong> No relocation expense, no lease break,
+        no double rent, no state-tax part-year filing, no change in job market. This is the
+        steady state after the move, not the move itself.
+      </li>
+      <li>
+        <strong>County is not neighbourhood.</strong> Both figures are county medians. The
+        spread inside a large county is often wider than the gap between the two counties
+        you are comparing.
+      </li>
+      <li>
+        <strong>Local income tax is modelled for two cities only</strong>, New York City
+        and Philadelphia. If either end of your move levies one that is not modelled, a
+        warning appears above and the real gap is wider than the page says.
+      </li>
+      <li>
+        <a href="/method/"><strong>Read the full method →</strong></a> Every source,
+        formula and known limitation, including the ones that make this wrong.
+      </li>
+    </ul>
+  </footer>
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="{{ url_for('static', filename='compare.js') }}"></script>
+{% endblock %}

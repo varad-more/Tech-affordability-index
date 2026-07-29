@@ -38,7 +38,7 @@ DEFAULT_ORIGIN = "https://affordability-index.varadmore.me"
 
 #: Pages that become directories, so ``/states/`` keeps its trailing slash and
 #: every relative link inside it still resolves.
-PAGES = ["/", "/states/", "/timing/", "/method/"]
+PAGES = ["/", "/states/", "/compare/", "/timing/", "/method/"]
 
 #: Served from the site root, rendered rather than copied because both name the
 #: site's own origin.
